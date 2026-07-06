@@ -9,6 +9,8 @@ const CHROMIUM_MAJOR = CHROMIUM_VERSION.split(".")[0];
 const VOICES = {
   eka: "ka-GE-EkaNeural",
   giorgi: "ka-GE-GiorgiNeural",
+  en: "en-US-JennyNeural",
+  tr: "tr-TR-EmelNeural",
 };
 
 function corsHeaders() {

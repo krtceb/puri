@@ -222,39 +222,37 @@ function speakSynth(text, lang) {
   speechSynthesis.cancel(); speechSynthesis.speak(u);
   return true;
 }
-// Google's free voice handles English and Turkish well.
-function ttsUrl(text, lang) {
-  const t = text.slice(0, 200);
-  return "https://translate.google.com/translate_tts?ie=UTF-8&q=" +
-    encodeURIComponent(t) + "&tl=" + lang + "&total=1&idx=0&textlen=" + t.length + "&client=tw-ob";
-}
-function speakLatin(text, lang) { // lang: "en" | "tr"
-  if (!text) return;
-  const a = new Audio(ttsUrl(text, lang));
-  a.play().catch(() => speakSynth(text, lang === "tr" ? "tr-TR" : "en-US"));
-}
-// Georgian: spoken by Eka, a natural neural voice, via our own free relay.
-// Falls back to a device voice if the relay is unreachable.
+// All voices come from our own free relay: Eka (Georgian), Jenny (English),
+// Emel (Türkçe). Falls back to a device voice if the relay is unreachable.
 const VOICE_URL = "https://puri-voice.puri-ebru.workers.dev/";
-let ekaAudio = null;
-const ekaCache = new Map(); // text -> object URL, so repeats play instantly
-async function speakGeorgian(text) {
+let relayAudio = null;
+const voiceCache = new Map(); // voice+text -> object URL, so repeats play instantly
+async function speakViaRelay(text, voice, fallback) {
   if (!text) return;
-  if (!ekaAudio) ekaAudio = new Audio(); // reuse one element; iOS trusts it after first tap
+  if (!relayAudio) relayAudio = new Audio(); // reuse one element; iOS trusts it after first tap
   try {
-    let src = ekaCache.get(text);
+    const key = voice + "|" + text;
+    let src = voiceCache.get(key);
     if (!src) {
-      const res = await fetch(VOICE_URL + "?q=" + encodeURIComponent(text.slice(0, 800)) + "&voice=eka");
+      const res = await fetch(VOICE_URL + "?q=" + encodeURIComponent(text.slice(0, 800)) + "&voice=" + voice);
       if (!res.ok) throw new Error("voice");
       src = URL.createObjectURL(await res.blob());
-      ekaCache.set(text, src);
+      voiceCache.set(key, src);
     }
-    ekaAudio.src = src;
-    await ekaAudio.play();
+    relayAudio.src = src;
+    await relayAudio.play();
   } catch {
+    fallback();
+  }
+}
+function speakLatin(text, lang) { // lang: "en" | "tr"
+  speakViaRelay(text, lang, () => speakSynth(text, lang === "tr" ? "tr-TR" : "en-US"));
+}
+function speakGeorgian(text) {
+  speakViaRelay(text, "eka", () => {
     if (hasVoice("ka")) { speakSynth(text, "ka-GE"); return; }
     toast("Couldn't reach the Georgian voice. Check your signal and try again.");
-  }
+  });
 }
 function toast(msg) {
   let t = document.getElementById("toast");
