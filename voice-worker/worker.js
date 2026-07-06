@@ -11,6 +11,7 @@ const VOICES = {
   giorgi: "ka-GE-GiorgiNeural",
   en: "en-US-JennyNeural",
   tr: "tr-TR-EmelNeural",
+  ru: "ru-RU-SvetlanaNeural",
 };
 
 function corsHeaders() {

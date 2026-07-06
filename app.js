@@ -13,6 +13,7 @@ const SEED_KEY = "khidi.seed.version";
 const SEED_VERSION = 3;
 
 const GEORGIAN = /[Ⴀ-ჿᲐ-Ჿⴀ-⴯]/;
+const CYRILLIC = /[А-яЁё]/;
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -34,10 +35,20 @@ const TRANSLIT = {
   "ტ":"t","უ":"u","ფ":"p","ქ":"k","ღ":"gh","ყ":"q","შ":"sh","ჩ":"ch","ც":"ts",
   "ძ":"dz","წ":"ts","ჭ":"ch","ხ":"kh","ჯ":"j","ჰ":"h",
 };
+const TRANSLIT_RU = {
+  "а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"yo","ж":"zh","з":"z",
+  "и":"i","й":"y","к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r",
+  "с":"s","т":"t","у":"u","ф":"f","х":"kh","ц":"ts","ч":"ch","ш":"sh",
+  "щ":"shch","ъ":"","ы":"y","ь":"","э":"e","ю":"yu","я":"ya",
+};
 function translit(text) {
   if (!text) return "";
   let out = "";
-  for (const ch of text) out += TRANSLIT[ch] != null ? TRANSLIT[ch] : ch;
+  for (const ch of text.toLowerCase()) {
+    out += TRANSLIT[ch] != null ? TRANSLIT[ch]
+      : TRANSLIT_RU[ch] != null ? TRANSLIT_RU[ch]
+      : ch;
+  }
   return out;
 }
 
@@ -99,6 +110,8 @@ const LANG_LABEL = { en: "English", tr: "Türkçe" };
 function renderResult(ka, out, lang) {
   $("empty").hidden = true;
   $("result").hidden = false;
+  $("source-tag").textContent =
+    CYRILLIC.test(ka) && !GEORGIAN.test(ka) ? "Русский" : "Georgian";
   $("source-text").textContent = ka;
   $("translit").textContent = ka ? "sounds like:  " + translit(ka) : "";
   $("out-text").textContent = out;
@@ -124,9 +137,14 @@ async function runTranslate() {
       const out = await translate(text, "ka|" + myLang);
       hideStatus();
       renderResult(text, out, myLang);
+    } else if (CYRILLIC.test(text)) {
+      showStatus("Reading Russian…");
+      const out = await translate(text, "ru|" + myLang);
+      hideStatus();
+      renderResult(text, out, myLang);
     } else {
       showStatus("Translating to Georgian…");
-      const ka = await translate(text, myLang + "|ka");
+      const ka = await translate(text, "auto|ka");
       hideStatus();
       renderResult(ka, text, myLang);
     }
@@ -143,11 +161,15 @@ async function runTranslate() {
 // re-translate the current result when the language is switched
 async function refreshLang() {
   if (!lastResult) return;
+  const src = lastResult.ka;
+  // Only re-translate when the source is the foreign side (Georgian or Russian).
+  const pair = GEORGIAN.test(src) ? "ka|" : CYRILLIC.test(src) ? "ru|" : null;
+  if (!pair) return;
   try {
     showStatus("Switching language…");
-    const out = await translate(lastResult.ka, "ka|" + myLang);
+    const out = await translate(src, pair + myLang);
     hideStatus();
-    renderResult(lastResult.ka, out, myLang);
+    renderResult(src, out, myLang);
   } catch { hideStatus(); }
 }
 
@@ -155,7 +177,7 @@ async function refreshLang() {
 // One shared reader for Photo and Scan; loading it is the slow part, so keep it warm.
 let ocrWorker = null;
 async function getOcrWorker() {
-  if (!ocrWorker) ocrWorker = await Tesseract.createWorker("kat+eng"); // reads both alphabets
+  if (!ocrWorker) ocrWorker = await Tesseract.createWorker("kat+eng+rus"); // Georgian, Latin, Cyrillic
   return ocrWorker;
 }
 
@@ -175,8 +197,8 @@ function cleanOcr(data) {
     toks = (data.text || "").split(/\s+/); // fallback if the reader gave no word scores
   }
   return toks
-    .map((t) => t.replace(/^[^ა-ჰa-zA-Z0-9]+/, "").replace(/[^ა-ჰa-zA-Z0-9?!.,]+$/, ""))
-    .filter((t) => /[ა-ჰa-zA-Z]/.test(t))
+    .map((t) => t.replace(/^[^ა-ჰa-zA-ZА-яЁё0-9]+/, "").replace(/[^ა-ჰa-zA-ZА-яЁё0-9?!.,]+$/, ""))
+    .filter((t) => /[ა-ჰa-zA-ZА-яЁё]/.test(t))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
@@ -256,6 +278,14 @@ function speakGeorgian(text) {
     if (hasVoice("ka")) { speakSynth(text, "ka-GE"); return; }
     toast("Couldn't reach the Georgian voice. Check your signal and try again.");
   });
+}
+// The source line can be Georgian or Russian; pick the right voice by script.
+function speakSource(text) {
+  if (CYRILLIC.test(text) && !GEORGIAN.test(text)) {
+    speakViaRelay(text, "ru", () => speakSynth(text, "ru-RU"));
+  } else {
+    speakGeorgian(text);
+  }
 }
 function toast(msg) {
   let t = document.getElementById("toast");
@@ -347,9 +377,9 @@ function phraseCard(i) {
   const foot = el("div", "phrase__foot");
   const say = el("button", "speak");
   say.type = "button";
-  say.setAttribute("aria-label", "Hear it in Georgian");
+  say.setAttribute("aria-label", "Hear it");
   say.innerHTML = EAR_SVG;
-  say.onclick = () => speakGeorgian(i.ka);
+  say.onclick = () => speakSource(i.ka);
   const del = el("button", "phrase__btn phrase__btn--del", "Remove");
   del.type = "button";
   del.onclick = () => { saveBook(loadBook().filter((x) => x.id !== i.id)); renderBook(); };
@@ -534,15 +564,16 @@ async function scanLoop() {
         ctx.drawImage(v, 0, 0, c.width, c.height);
         const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
         const text = cleanOcr(data);
-        const letters = (text.match(/[ა-ჰa-zA-Z]/g) || []).length;
+        const letters = (text.match(/[ა-ჰa-zA-ZА-яЁё]/g) || []).length;
         if (text && letters >= 4 && text !== lastScanRaw) {
           lastScanRaw = text;
           try {
-            if (GEORGIAN.test(text)) {
-              // Georgian sign -> her language
+            if (GEORGIAN.test(text) || CYRILLIC.test(text)) {
+              // Georgian or Russian label -> her language
               $("scan-ka").textContent = text;
               $("scan-status").textContent = "";
-              const out = await translate(text, "ka|" + myLang);
+              const pair = GEORGIAN.test(text) ? "ka|" : "ru|";
+              const out = await translate(text, pair + myLang);
               lastScanKa = text;
               lastScanOut = out;
               $("scan-out").textContent = out;
@@ -630,14 +661,14 @@ function init() {
     e.target.value = "";
   });
 
-  $("speak-ka").onclick = () => speakGeorgian($("source-text").textContent);
+  $("speak-ka").onclick = () => speakSource($("source-text").textContent);
   $("speak-out").onclick = () => speakLatin($("out-text").textContent, myLang);
 
   // fullscreen show mode
   $("show-big").onclick = () => lastResult && openShow(lastResult.ka, lastResult.out, lastResult.lang);
   $("show-close").onclick = closeShow;
   $("show-speak").innerHTML = EAR_SVG;
-  $("show-speak").onclick = () => speakGeorgian(showKa);
+  $("show-speak").onclick = () => speakSource(showKa);
 
   // phrasebook search
   $("search").addEventListener("input", () => {
