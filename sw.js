@@ -1,7 +1,7 @@
 /* Puri offline shell. Network-first so the newest version always loads when
    online; falls back to cache when there's no signal. Translation and voice
    calls always go to the network. The saved phrasebook lives on the device. */
-const CACHE = "puri-v5";
+const CACHE = "puri-v6";
 const SHELL = [
   "./",
   "index.html",

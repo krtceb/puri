@@ -109,6 +109,7 @@ function renderResult(ka, out, lang) {
   save.classList.remove("is-saved");
   save.lastChild.textContent = " Save to phrasebook";
   lastResult = { ka, out, lang };
+  $("btn-clear").hidden = false; // a result on screen is always clearable
 }
 
 // ---- main translate flow ----
@@ -414,6 +415,96 @@ function stopRec() {
   setTimeout(finishRec, 900); // watchdog: iOS often skips the ended event
 }
 
+// ---- live scan (point the camera, no photo taking) ----
+let scanStream = null;
+let scanTimer = null;
+let scanBusy = false;
+let scanWorker = null;
+let lastScanKa = "";
+let lastScanOut = "";
+
+async function openScan() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("This browser can't open the camera here. Use the Photo button.");
+    return;
+  }
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false,
+    });
+  } catch {
+    toast("Puri needs camera permission for live scan.");
+    return;
+  }
+  $("scan").hidden = false;
+  $("scan-status").textContent = "Warming up the reader…";
+  $("scan-ka").textContent = "";
+  $("scan-out").textContent = "";
+  $("scan-use").hidden = true;
+  const v = $("scan-video");
+  v.srcObject = scanStream;
+  try { await v.play(); } catch {}
+  try {
+    if (!scanWorker) scanWorker = await Tesseract.createWorker("kat");
+  } catch {
+    closeScan();
+    toast("Couldn't load the reader. Check your signal and try again.");
+    return;
+  }
+  $("scan-status").textContent = "Point at Georgian text and hold steady…";
+  scanLoop();
+}
+
+async function scanLoop() {
+  if (!scanStream) return;
+  if (!scanBusy) {
+    scanBusy = true;
+    try {
+      const v = $("scan-video");
+      if (v.videoWidth) {
+        const scale = Math.min(1, 1100 / v.videoWidth);
+        const c = document.createElement("canvas");
+        c.width = Math.round(v.videoWidth * scale);
+        c.height = Math.round(v.videoHeight * scale);
+        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        const { data } = await scanWorker.recognize(c);
+        const ka = (data.text || "")
+          .split("\n")
+          .filter((l) => GEORGIAN.test(l))
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (ka && ka.length >= 3 && ka !== lastScanKa) {
+          lastScanKa = ka;
+          $("scan-ka").textContent = ka;
+          $("scan-status").textContent = "";
+          try {
+            const out = await translate(ka, "ka|" + myLang);
+            lastScanOut = out;
+            $("scan-out").textContent = out;
+            $("scan-use").hidden = false;
+          } catch {}
+        } else if (!lastScanKa) {
+          $("scan-status").textContent = "Looking for Georgian text…";
+        }
+      }
+    } catch {}
+    scanBusy = false;
+  }
+  scanTimer = setTimeout(scanLoop, 400);
+}
+
+function closeScan() {
+  $("scan").hidden = true;
+  clearTimeout(scanTimer);
+  scanTimer = null;
+  if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
+  // keep the loaded reader for next time; it's expensive to warm up
+  lastScanKa = "";
+  lastScanOut = "";
+}
+
 // ---- views ----
 function switchView(name) {
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("is-active"));
@@ -442,17 +533,24 @@ function init() {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") runTranslate();
   });
   $("input").addEventListener("input", () => {
-    $("btn-clear").hidden = $("input").value.trim() === "";
+    $("btn-clear").hidden = $("input").value.trim() === "" && $("result").hidden;
   });
   $("btn-clear").onclick = () => {
     $("input").value = "";
     $("btn-clear").hidden = true;
     $("result").hidden = true;
     $("empty").hidden = false;
+    lastResult = null;
     hideStatus();
   };
 
   $("btn-photo").onclick = () => $("file").click();
+  $("btn-scan").onclick = openScan;
+  $("scan-close").onclick = closeScan;
+  $("scan-use").onclick = () => {
+    if (lastScanKa && lastScanOut) renderResult(lastScanKa, lastScanOut, myLang);
+    closeScan();
+  };
   $("file").addEventListener("change", (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) runOCR(f);

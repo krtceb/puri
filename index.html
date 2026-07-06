@@ -51,6 +51,11 @@
               <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8h2.2l1.1-1.7a1 1 0 0 1 .84-.45h6.72a1 1 0 0 1 .84.45L17.3 8h2.2A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-8A1.5 1.5 0 0 1 4.5 8Z"/><circle cx="12" cy="13" r="3.3"/></svg>
             </span> Photo
           </button>
+          <button id="btn-scan" class="btn btn--ghost" type="button">
+            <span class="btn__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5V9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15M15 20h3.5a1.5 1.5 0 0 0 1.5-1.5V15"/><circle cx="12" cy="12" r="2.2"/></svg>
+            </span> Scan
+          </button>
           <button id="btn-clear" class="btn btn--ghost" type="button" hidden>Clear</button>
           <button id="btn-go" class="btn btn--solid" type="button">Translate</button>
         </div>
@@ -150,6 +155,18 @@
         <span class="tab__label">Talk</span>
       </button>
     </nav>
+  </div>
+
+  <!-- Live scan -->
+  <div class="scan" id="scan" hidden>
+    <video id="scan-video" class="scan__video" autoplay playsinline muted></video>
+    <button class="show__close scan__close" id="scan-close" type="button" aria-label="Close">✕</button>
+    <div class="scan__panel">
+      <p class="scan__status" id="scan-status"></p>
+      <p class="scan__ka" id="scan-ka"></p>
+      <p class="scan__out" id="scan-out"></p>
+      <button class="btn btn--solid scan__use" id="scan-use" type="button" hidden>Open this result</button>
+    </div>
   </div>
 
   <!-- Fullscreen "show them" mode -->
