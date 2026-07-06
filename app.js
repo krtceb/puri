@@ -342,8 +342,13 @@ function openShow(ka, src, lang) {
 function closeShow() { $("show").hidden = true; }
 
 // ---- talk mode (free, built into the browser) ----
+// iOS quirk: Safari's speech engine often never fires its "ended" event after
+// stop(), so everything funnels through finishRec(), which also runs from a
+// watchdog timer. Whichever path fires first wins; the rest become no-ops.
 let rec = null;
 let recActive = false;
+let recDone = true;
+let heardText = "";
 function syncMic() {
   $("mic").classList.toggle("is-live", recActive);
   $("mic").setAttribute("aria-label", recActive ? "Stop listening" : "Start listening");
@@ -351,43 +356,51 @@ function syncMic() {
 function talkSupported() {
   return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
+async function finishRec() {
+  if (recDone) return;
+  recDone = true;
+  recActive = false;
+  syncMic();
+  try { rec && rec.abort(); } catch {}
+  const text = heardText.trim();
+  if (!text) { $("talk-status").textContent = "Didn't catch that. Tap the mic and try again."; return; }
+  $("talk-status").textContent = "Translating…";
+  try {
+    const ka = await translate(text, myLang + "|ka");
+    $("talk-status").textContent = "";
+    renderResult(ka, text, myLang); // also lands in Translate, so it can be saved
+    openShow(ka, text, myLang);
+  } catch {
+    $("talk-status").textContent = "Couldn't translate. Check your signal and try again.";
+  }
+}
 function startRec() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   rec = new SR();
   rec.lang = myLang === "tr" ? "tr-TR" : "en-US";
   rec.interimResults = true;
   rec.continuous = false;
-  let finalText = "";
+  rec.maxAlternatives = 1;
+  heardText = "";
+  recDone = false;
   rec.onresult = (e) => {
-    let interim = "";
-    for (const r of e.results) {
-      if (r.isFinal) finalText += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    $("talk-heard").textContent = finalText || interim;
-    $("talk-last").hidden = false;
+    let full = "";
+    for (const r of e.results) full += r[0].transcript;
+    if (full) heardText = full; // keep interim text too; iOS may never mark it final
+    $("talk-heard").textContent = heardText;
+    $("talk-last").hidden = !heardText;
   };
-  rec.onend = async () => {
-    recActive = false;
-    syncMic();
-    const text = (finalText || $("talk-heard").textContent || "").trim();
-    if (!text) { $("talk-status").textContent = "Didn't catch that. Tap the mic and try again."; return; }
-    $("talk-status").textContent = "Translating…";
-    try {
-      const ka = await translate(text, myLang + "|ka");
-      $("talk-status").textContent = "";
-      renderResult(ka, text, myLang); // also lands in Translate, so it can be saved
-      openShow(ka, text, myLang);
-    } catch {
-      $("talk-status").textContent = "Couldn't translate. Check your signal and try again.";
-    }
-  };
+  rec.onend = finishRec;
+  rec.onspeechend = () => setTimeout(finishRec, 700); // iOS: engine noticed silence
   rec.onerror = (e) => {
-    recActive = false;
-    syncMic();
-    $("talk-status").textContent = e.error === "not-allowed"
-      ? "Safari needs microphone permission. Check Settings for this site."
-      : "The mic didn't start. Tap and try again.";
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      recDone = true;
+      recActive = false;
+      syncMic();
+      $("talk-status").textContent = "Puri needs microphone permission. Allow it in Settings > Apps > Safari.";
+      return;
+    }
+    finishRec(); // e.g. "no-speech": finalize with whatever we heard
   };
   recActive = true;
   syncMic();
@@ -396,7 +409,10 @@ function startRec() {
   $("talk-last").hidden = true;
   rec.start();
 }
-function stopRec() { try { rec && rec.stop(); } catch {} }
+function stopRec() {
+  try { rec && rec.stop(); } catch {}
+  setTimeout(finishRec, 900); // watchdog: iOS often skips the ended event
+}
 
 // ---- views ----
 function switchView(name) {
