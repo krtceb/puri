@@ -1,7 +1,9 @@
 /* Puri: a private Georgian translator for Ebru and Master.
-   v1: free MyMemory engine, on-device OCR (Tesseract), local phrasebook.
-   You pick one language (English or Turkish) and can switch any time.
-   Georgian is read aloud, with a "sounds like" Latin line for pronunciation. */
+   Reads Georgian, Russian, and English by keyboard, photo, live camera scan,
+   or voice; answers in English or Türkçe, switchable any time.
+   Engine: Google's free endpoint with MyMemory as backup. On-device OCR
+   (Tesseract kat+eng+rus). Voices via our own Cloudflare relay: Eka (ka),
+   Jenny (en), Emel (tr), Svetlana (ru). Phrasebook lives in localStorage. */
 
 // Raises the free MyMemory daily limit. Stored in pieces so email-harvesting
 // bots scanning public code don't recognize it; joins to the real address at runtime.

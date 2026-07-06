@@ -235,8 +235,9 @@ body { overscroll-behavior-y: none; }
 .speak svg { display: block; }
 .speak:active { transform: scale(0.92); }
 
-/* ---------- empty (intentionally blank for a calm first screen) ---------- */
-.empty { min-height: 8px; }
+/* ---------- empty (a calm first screen, with a little company) ---------- */
+.empty { min-height: 8px; display: flex; justify-content: center; padding-top: 9vh; }
+.empty__img { width: 150px; height: 150px; border-radius: 50%; opacity: 0.9; }
 .btn__icon svg { display: block; }
 
 /* ---------- phrasebook ---------- */

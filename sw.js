@@ -1,7 +1,7 @@
 /* Puri offline shell. Network-first so the newest version always loads when
    online; falls back to cache when there's no signal. Translation and voice
    calls always go to the network. The saved phrasebook lives on the device. */
-const CACHE = "puri-v12";
+const CACHE = "puri-v13";
 const SHELL = [
   "./",
   "index.html",
@@ -12,6 +12,7 @@ const SHELL = [
   "icon-180.png",
   "icon-192.png",
   "icon-512.png",
+  "welcome.png",
 ];
 
 self.addEventListener("install", (e) => {
