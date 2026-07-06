@@ -75,10 +75,11 @@ async function mymemoryTranslate(text, pair) {
 async function translate(text, pair) {
   const [from, to] = pair.split("|");
   try {
-    return await googleTranslate(text, from, to);
+    return await googleTranslate(text, from, to); // "auto" lets Google detect the language
   } catch (e) {
     // Google unreachable: fall back to MyMemory rather than failing outright.
-    return mymemoryTranslate(text, pair);
+    const mmFrom = from === "auto" ? myLang : from;
+    return mymemoryTranslate(text, mmFrom + "|" + to);
   }
 }
 
@@ -154,7 +155,7 @@ async function refreshLang() {
 // One shared reader for Photo and Scan; loading it is the slow part, so keep it warm.
 let ocrWorker = null;
 async function getOcrWorker() {
-  if (!ocrWorker) ocrWorker = await Tesseract.createWorker("kat");
+  if (!ocrWorker) ocrWorker = await Tesseract.createWorker("kat+eng"); // reads both alphabets
   return ocrWorker;
 }
 
@@ -174,8 +175,8 @@ function cleanOcr(data) {
     toks = (data.text || "").split(/\s+/); // fallback if the reader gave no word scores
   }
   return toks
-    .map((t) => t.replace(/^[^ა-ჰ0-9]+/, "").replace(/[^ა-ჰ0-9?!.,]+$/, ""))
-    .filter((t) => /[ა-ჰ]/.test(t))
+    .map((t) => t.replace(/^[^ა-ჰa-zA-Z0-9]+/, "").replace(/[^ა-ჰa-zA-Z0-9?!.,]+$/, ""))
+    .filter((t) => /[ა-ჰa-zA-Z]/.test(t))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
@@ -477,6 +478,7 @@ let scanStream = null;
 let scanTimer = null;
 let scanBusy = false;
 let scanWorker = null;
+let lastScanRaw = "";
 let lastScanKa = "";
 let lastScanOut = "";
 
@@ -527,19 +529,31 @@ async function scanLoop() {
         c.height = Math.round(v.videoHeight * scale);
         c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
         const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
-        const ka = cleanOcr(data);
-        if (ka && ka.length >= 3 && ka !== lastScanKa) {
-          lastScanKa = ka;
-          $("scan-ka").textContent = ka;
-          $("scan-status").textContent = "";
+        const text = cleanOcr(data);
+        if (text && text.length >= 3 && text !== lastScanRaw) {
+          lastScanRaw = text;
           try {
-            const out = await translate(ka, "ka|" + myLang);
-            lastScanOut = out;
-            $("scan-out").textContent = out;
+            if (GEORGIAN.test(text)) {
+              // Georgian sign -> her language
+              $("scan-ka").textContent = text;
+              $("scan-status").textContent = "";
+              const out = await translate(text, "ka|" + myLang);
+              lastScanKa = text;
+              lastScanOut = out;
+              $("scan-out").textContent = out;
+            } else {
+              // English (or other Latin) label -> Georgian
+              $("scan-out").textContent = text;
+              $("scan-status").textContent = "";
+              const ka = await translate(text, "auto|ka");
+              lastScanKa = ka;
+              lastScanOut = text;
+              $("scan-ka").textContent = ka;
+            }
             $("scan-use").hidden = false;
           } catch {}
-        } else if (!lastScanKa) {
-          $("scan-status").textContent = "Looking for Georgian text…";
+        } else if (!lastScanRaw) {
+          $("scan-status").textContent = "Looking for text…";
         }
       }
     } catch {}
@@ -554,6 +568,7 @@ function closeScan() {
   scanTimer = null;
   if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
   scanWorker = null; // shared reader stays warm in getOcrWorker
+  lastScanRaw = "";
   lastScanKa = "";
   lastScanOut = "";
 }
