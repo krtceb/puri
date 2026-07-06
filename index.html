@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+  <title>Puri · everyday Georgian</title>
+  <meta name="description" content="A private Georgian translator for everyday life, in English or Turkish, with pronunciation." />
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Puri" />
+  <meta name="theme-color" content="#6D58BE" />
+  <link rel="apple-touch-icon" href="icon-180.png" />
+  <link rel="icon" href="icon-192.png" type="image/png" />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="manifest" href="manifest.webmanifest" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Serif+Georgian:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- ===== Translate view ===== -->
+    <main id="view-translate" class="view is-active">
+      <header class="topbar">
+        <div class="wordmark">
+          <span class="wordmark__ka">პური</span>
+        </div>
+      </header>
+
+      <section class="composer">
+        <div class="langrow">
+          <div class="seg" id="seg" role="group" aria-label="Choose your language">
+            <button class="seg__btn is-on" data-lang="en" type="button">English</button>
+            <button class="seg__btn" data-lang="tr" type="button">Türkçe</button>
+          </div>
+        </div>
+
+        <textarea id="input" class="input" rows="2"
+          placeholder="Type or paste Georgian here, or snap a photo of a sign."
+          autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+
+        <div class="composer__actions">
+          <input id="file" class="visually-hidden" type="file" accept="image/*" capture="environment" />
+          <button id="btn-photo" class="btn btn--ghost" type="button">
+            <span class="btn__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8h2.2l1.1-1.7a1 1 0 0 1 .84-.45h6.72a1 1 0 0 1 .84.45L17.3 8h2.2A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-8A1.5 1.5 0 0 1 4.5 8Z"/><circle cx="12" cy="13" r="3.3"/></svg>
+            </span> Photo
+          </button>
+          <button id="btn-clear" class="btn btn--ghost" type="button" hidden>Clear</button>
+          <button id="btn-go" class="btn btn--solid" type="button">Translate</button>
+        </div>
+      </section>
+
+      <section id="status" class="status" hidden></section>
+
+      <section id="result" class="result" hidden>
+        <article class="ka-card">
+          <header class="out__head">
+            <span class="tag tag--source">Georgian</span>
+            <span class="head-actions">
+              <button class="speak" id="show-big" type="button" aria-label="Show big, for someone to read">
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/></svg>
+              </button>
+              <button class="speak" id="speak-ka" type="button" aria-label="Hear it in Georgian">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5a6 6 0 1 1 12 0c0 4-4 5-5 7.5A3 3 0 0 1 7 16"/><path d="M9.6 9.2a2.4 2.4 0 0 1 4.8 0c0 1.5-1.4 2.1-2.1 2.9"/></svg>
+              </button>
+            </span>
+          </header>
+          <p class="ka-text" id="source-text"></p>
+          <p class="translit" id="translit"></p>
+        </article>
+
+        <article class="out" id="out-card">
+          <header class="out__head">
+            <span class="tag" id="out-tag">English</span>
+            <button class="speak" id="speak-out" type="button" aria-label="Read aloud">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5v5h3.2L12 18V6L7.2 9.5H4Z"/><path d="M15.5 9.5a3.2 3.2 0 0 1 0 5"/></svg>
+            </button>
+          </header>
+          <p class="out__text" id="out-text"></p>
+        </article>
+
+        <button id="btn-save" class="btn btn--save" type="button">
+          <span class="btn__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v2M16 3v2"/><rect x="5" y="4.5" width="14" height="16.5" rx="2.5"/><path d="M9 10h6M9 14h4"/></svg>
+          </span> Save to phrasebook
+        </button>
+      </section>
+
+      <section class="empty" id="empty" aria-hidden="true"></section>
+    </main>
+
+    <!-- ===== Phrasebook view ===== -->
+    <main id="view-book" class="view">
+      <header class="topbar">
+        <div class="wordmark">
+          <span class="wordmark__ka">ფრაზები</span>
+        </div>
+      </header>
+      <input id="search" class="search" type="search" placeholder="Search your phrases…" autocomplete="off" autocapitalize="off" />
+      <nav class="folders" id="folders" aria-label="Phrasebook folders"></nav>
+      <section class="book" id="book"></section>
+    </main>
+
+    <!-- ===== Talk view ===== -->
+    <main id="view-talk" class="view">
+      <header class="topbar">
+        <div class="wordmark">
+          <span class="wordmark__ka">საუბარი</span>
+        </div>
+      </header>
+      <section class="talk">
+        <div class="seg" role="group" aria-label="Choose your language">
+          <button class="seg__btn" data-lang="en" type="button">English</button>
+          <button class="seg__btn" data-lang="tr" type="button">Türkçe</button>
+        </div>
+        <p class="talk-hint" id="talk-hint">Tap the mic and say it in your language. Puri flips it into big Georgian you can show or say.</p>
+        <button id="mic" class="mic" type="button" aria-label="Start listening">
+          <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+        </button>
+        <p class="talk-status" id="talk-status"></p>
+        <div class="talk-last" id="talk-last" hidden>
+          <span class="tag tag--source">Heard</span>
+          <p class="talk-heard" id="talk-heard"></p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== Bottom nav ===== -->
+    <nav class="tabbar" aria-label="Main">
+      <button class="tab is-active" data-view="translate" type="button">
+        <span class="tab__glyph" aria-hidden="true">ა</span>
+        <span class="tab__label">Translate</span>
+      </button>
+      <button class="tab" data-view="book" type="button">
+        <span class="tab__glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v2M16 3v2"/><rect x="5" y="4.5" width="14" height="16.5" rx="2.5"/><path d="M9 10h6M9 14h4"/></svg>
+        </span>
+        <span class="tab__label">Phrasebook</span>
+      </button>
+      <button class="tab" data-view="talk" type="button">
+        <span class="tab__glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+        </span>
+        <span class="tab__label">Talk</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Fullscreen "show them" mode -->
+  <div class="show" id="show" hidden>
+    <button class="show__close" id="show-close" type="button" aria-label="Close">✕</button>
+    <div class="show__body">
+      <p class="show__ka" id="show-ka"></p>
+      <p class="show__translit" id="show-translit"></p>
+      <p class="show__src" id="show-src"></p>
+    </div>
+    <div class="show__foot">
+      <button class="speak show__speak" id="show-speak" type="button" aria-label="Hear it in Georgian"></button>
+    </div>
+  </div>
+
+  <!-- Save sheet -->
+  <div class="sheet" id="save-sheet" hidden>
+    <div class="sheet__panel" role="dialog" aria-label="Save phrase">
+      <p class="sheet__title">Save to which folder?</p>
+      <div class="sheet__folders" id="save-folders"></div>
+      <button class="btn btn--ghost sheet__cancel" id="save-cancel" type="button">Cancel</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

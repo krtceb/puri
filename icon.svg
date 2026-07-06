@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#6D58BE"/>
+  <!-- steam -->
+  <g fill="none" stroke="#CDBEF0" stroke-width="9" stroke-linecap="round" opacity="0.85">
+    <path d="M214 150 q-16 -20 0 -40 q16 -20 0 -40"/>
+    <path d="M298 150 q-16 -20 0 -40 q16 -20 0 -40"/>
+  </g>
+  <!-- a warm loaf of puri -->
+  <path d="M256 196 c92 0 150 52 150 112 c0 28 -18 42 -46 42 l-208 0 c-28 0 -46 -14 -46 -42 c0 -60 58 -112 150 -112 z"
+        fill="#F0DBA8" stroke="#C9A869" stroke-width="11" stroke-linejoin="round"/>
+  <!-- crust scores -->
+  <g fill="none" stroke="#C9A869" stroke-width="10" stroke-linecap="round">
+    <path d="M196 280 l34 -34"/>
+    <path d="M244 286 l40 -40"/>
+    <path d="M296 288 l36 -34"/>
+  </g>
+</svg>
