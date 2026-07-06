@@ -170,7 +170,7 @@ function cleanOcr(data) {
   }
   let toks;
   if (words.length) {
-    toks = words.filter((w) => (w.confidence || 0) >= 55).map((w) => (w.text || "").trim());
+    toks = words.filter((w) => (w.confidence || 0) >= 50).map((w) => (w.text || "").trim());
   } else {
     toks = (data.text || "").split(/\s+/); // fallback if the reader gave no word scores
   }
@@ -189,7 +189,9 @@ async function fileToCanvas(file, maxW) {
   const c = document.createElement("canvas");
   c.width = Math.round(img.width * scale);
   c.height = Math.round(img.height * scale);
-  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  const ctx = c.getContext("2d");
+  ctx.filter = "grayscale(1) contrast(1.5)"; // labels read far better flattened
+  ctx.drawImage(img, 0, 0, c.width, c.height);
   return c;
 }
 
@@ -489,7 +491,7 @@ async function openScan() {
   }
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" },
+      video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
   } catch {
@@ -512,7 +514,7 @@ async function openScan() {
     toast("Couldn't load the reader. Check your signal and try again.");
     return;
   }
-  $("scan-status").textContent = "Point at Georgian text and hold steady…";
+  $("scan-status").textContent = "Get close: fill the screen with a few lines of text, and hold steady…";
   scanLoop();
 }
 
@@ -523,14 +525,17 @@ async function scanLoop() {
     try {
       const v = $("scan-video");
       if (v.videoWidth) {
-        const scale = Math.min(1, 1100 / v.videoWidth);
+        const scale = Math.min(1, 1600 / v.videoWidth);
         const c = document.createElement("canvas");
         c.width = Math.round(v.videoWidth * scale);
         c.height = Math.round(v.videoHeight * scale);
-        c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+        const ctx = c.getContext("2d");
+        ctx.filter = "grayscale(1) contrast(1.5)"; // labels read far better flattened
+        ctx.drawImage(v, 0, 0, c.width, c.height);
         const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
         const text = cleanOcr(data);
-        if (text && text.length >= 3 && text !== lastScanRaw) {
+        const letters = (text.match(/[ა-ჰa-zA-Z]/g) || []).length;
+        if (text && letters >= 4 && text !== lastScanRaw) {
           lastScanRaw = text;
           try {
             if (GEORGIAN.test(text)) {
