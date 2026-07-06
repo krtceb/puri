@@ -41,8 +41,25 @@ function translit(text) {
   return out;
 }
 
-// ---- translation engine (MyMemory, free, CORS-friendly) ----
-async function translate(text, pair) {
+// ---- translation engines ----
+// Primary: Google's free endpoint (no key, excellent Georgian).
+// Backup: MyMemory (free, but its Georgian entries are sometimes polluted).
+async function googleTranslate(text, from, to) {
+  const url =
+    "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" + from +
+    "&tl=" + to + "&dt=t&q=" + encodeURIComponent(text);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("network");
+  const data = await res.json();
+  const out = ((data && data[0]) || [])
+    .map((seg) => (seg && seg[0]) || "")
+    .join("")
+    .trim();
+  if (!out) throw new Error("empty");
+  return out;
+}
+
+async function mymemoryTranslate(text, pair) {
   const url =
     "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) +
     "&langpair=" + pair + "&de=" + encodeURIComponent(OWNER_EMAIL);
@@ -53,6 +70,16 @@ async function translate(text, pair) {
   if (!out) throw new Error("empty");
   if (/MYMEMORY WARNING/i.test(out)) throw new Error("limit");
   return out;
+}
+
+async function translate(text, pair) {
+  const [from, to] = pair.split("|");
+  try {
+    return await googleTranslate(text, from, to);
+  } catch (e) {
+    // Google unreachable: fall back to MyMemory rather than failing outright.
+    return mymemoryTranslate(text, pair);
+  }
 }
 
 // ---- status ----
