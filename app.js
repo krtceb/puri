@@ -151,14 +151,57 @@ async function refreshLang() {
 }
 
 // ---- camera / OCR ----
+// One shared reader for Photo and Scan; loading it is the slow part, so keep it warm.
+let ocrWorker = null;
+async function getOcrWorker() {
+  if (!ocrWorker) ocrWorker = await Tesseract.createWorker("kat");
+  return ocrWorker;
+}
+
+// The reader scores every word it thinks it saw. Keep confident, Georgian words;
+// drop the smudge-guesses that turn signs into punctuation soup.
+function cleanOcr(data) {
+  let words = data.words || [];
+  if (!words.length && data.blocks) {
+    (data.blocks || []).forEach((b) =>
+      (b.paragraphs || []).forEach((p) =>
+        (p.lines || []).forEach((l) => (l.words || []).forEach((w) => words.push(w)))));
+  }
+  let toks;
+  if (words.length) {
+    toks = words.filter((w) => (w.confidence || 0) >= 55).map((w) => (w.text || "").trim());
+  } else {
+    toks = (data.text || "").split(/\s+/); // fallback if the reader gave no word scores
+  }
+  return toks
+    .map((t) => t.replace(/^[^ა-ჰ0-9]+/, "").replace(/[^ა-ჰ0-9?!.,]+$/, ""))
+    .filter((t) => /[ა-ჰ]/.test(t))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Huge photos are slow and noisy; a steady 1600px-wide image reads best.
+async function fileToCanvas(file, maxW) {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, maxW / img.width);
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale);
+  c.height = Math.round(img.height * scale);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
 async function runOCR(file) {
   showStatus("Reading the photo… this part runs on your phone.");
   try {
-    const worker = await Tesseract.createWorker("kat");
-    const { data } = await worker.recognize(file);
-    await worker.terminate();
-    const text = (data.text || "").trim().replace(/\s+\n/g, "\n");
-    if (!text) { showStatus("Could not find readable text. Try a closer, steadier photo.", "error"); return; }
+    const worker = await getOcrWorker();
+    await worker.setParameters({ tessedit_pageseg_mode: "3" }); // full-page reading
+    let source = file;
+    try { source = await fileToCanvas(file, 1600); } catch {}
+    const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
+    const text = cleanOcr(data);
+    if (!text) { showStatus("Couldn't find clear Georgian text. Get closer, fill the frame, avoid glare.", "error"); return; }
     $("input").value = text;
     $("btn-clear").hidden = false;
     await runTranslate();
@@ -462,7 +505,8 @@ async function openScan() {
   v.srcObject = scanStream;
   try { await v.play(); } catch {}
   try {
-    if (!scanWorker) scanWorker = await Tesseract.createWorker("kat");
+    scanWorker = await getOcrWorker();
+    await scanWorker.setParameters({ tessedit_pageseg_mode: "6" }); // signs: one block of text
   } catch {
     closeScan();
     toast("Couldn't load the reader. Check your signal and try again.");
@@ -484,13 +528,8 @@ async function scanLoop() {
         c.width = Math.round(v.videoWidth * scale);
         c.height = Math.round(v.videoHeight * scale);
         c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-        const { data } = await scanWorker.recognize(c);
-        const ka = (data.text || "")
-          .split("\n")
-          .filter((l) => GEORGIAN.test(l))
-          .join(" ")
-          .replace(/\s+/g, " ")
-          .trim();
+        const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
+        const ka = cleanOcr(data);
         if (ka && ka.length >= 3 && ka !== lastScanKa) {
           lastScanKa = ka;
           $("scan-ka").textContent = ka;
@@ -516,7 +555,7 @@ function closeScan() {
   clearTimeout(scanTimer);
   scanTimer = null;
   if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
-  // keep the loaded reader for next time; it's expensive to warm up
+  scanWorker = null; // shared reader stays warm in getOcrWorker
   lastScanKa = "";
   lastScanOut = "";
 }
