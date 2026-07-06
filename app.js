@@ -190,12 +190,28 @@ function speakLatin(text, lang) { // lang: "en" | "tr"
   const a = new Audio(ttsUrl(text, lang));
   a.play().catch(() => speakSynth(text, lang === "tr" ? "tr-TR" : "en-US"));
 }
-// Georgian: use a real device voice if present. The free service has no Georgian,
-// so rather than read it in the wrong language, we point to the "sounds like" line.
-function speakGeorgian(text) {
+// Georgian: spoken by Eka, a natural neural voice, via our own free relay.
+// Falls back to a device voice if the relay is unreachable.
+const VOICE_URL = "https://puri-voice.puri-ebru.workers.dev/";
+let ekaAudio = null;
+const ekaCache = new Map(); // text -> object URL, so repeats play instantly
+async function speakGeorgian(text) {
   if (!text) return;
-  if (hasVoice("ka")) { speakSynth(text, "ka-GE"); return; }
-  toast("No Georgian voice on this phone yet. Use the 'sounds like' line to say it.");
+  if (!ekaAudio) ekaAudio = new Audio(); // reuse one element; iOS trusts it after first tap
+  try {
+    let src = ekaCache.get(text);
+    if (!src) {
+      const res = await fetch(VOICE_URL + "?q=" + encodeURIComponent(text.slice(0, 800)) + "&voice=eka");
+      if (!res.ok) throw new Error("voice");
+      src = URL.createObjectURL(await res.blob());
+      ekaCache.set(text, src);
+    }
+    ekaAudio.src = src;
+    await ekaAudio.play();
+  } catch {
+    if (hasVoice("ka")) { speakSynth(text, "ka-GE"); return; }
+    toast("Couldn't reach the Georgian voice. Check your signal and try again.");
+  }
 }
 function toast(msg) {
   let t = document.getElementById("toast");
