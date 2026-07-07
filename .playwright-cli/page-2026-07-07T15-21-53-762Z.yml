@@ -1,0 +1,27 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e6]: პური
+    - generic [ref=e7]:
+      - group "Choose your language" [ref=e9]:
+        - button "English" [ref=e10] [cursor=pointer]
+        - button "Türkçe" [ref=e11] [cursor=pointer]
+      - textbox "Type or paste anything here, or point the camera at a sign." [ref=e12]
+      - generic [ref=e13]:
+        - button "Choose File" [ref=e14]
+        - button "Photo" [ref=e15] [cursor=pointer]:
+          - img [ref=e17]
+          - text: Photo
+        - button "Scan" [ref=e20] [cursor=pointer]:
+          - img [ref=e22]
+          - text: Scan
+        - button "Translate" [ref=e25] [cursor=pointer]
+  - navigation "Main" [ref=e27]:
+    - button "Translate" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]: ა
+      - generic [ref=e30]: Translate
+    - button "Phrasebook" [ref=e31] [cursor=pointer]:
+      - img [ref=e33]
+      - generic [ref=e37]: Phrasebook
+    - button "Talk" [ref=e38] [cursor=pointer]:
+      - img [ref=e40]
+      - generic [ref=e43]: Talk

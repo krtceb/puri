@@ -448,10 +448,18 @@ function openSaveSheet() {
 }
 
 // ---- language toggle ----
+// The white pill glides under the active language, iOS-style.
 function syncLang() {
   document.querySelectorAll(".seg__btn").forEach((b) =>
     b.classList.toggle("is-on", b.dataset.lang === myLang)
   );
+  document.querySelectorAll(".seg").forEach((seg) => {
+    const thumb = seg.querySelector(".seg__thumb");
+    const on = seg.querySelector(".seg__btn.is-on");
+    if (!thumb || !on || !on.offsetWidth) return; // hidden view: measured when shown
+    thumb.style.left = on.offsetLeft + "px";
+    thumb.style.width = on.offsetWidth + "px";
+  });
 }
 
 // ---- fullscreen "show them" mode ----
@@ -669,6 +677,7 @@ function switchView(name) {
     t.classList.toggle("is-active", t.dataset.view === name)
   );
   if (name === "book") { renderFolders(); renderBook(); }
+  syncLang(); // position the toggle pill in the view that just became visible
   window.scrollTo(0, 0);
 }
 
@@ -751,6 +760,10 @@ function init() {
 
   const v = $("app-version");
   if (v) v.textContent = "Puri v" + APP_VERSION;
+
+  // re-measure the toggle pill once fonts finish loading (text widths shift)
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncLang);
+  setTimeout(syncLang, 400);
 
   ensureSeeds();
 }
@@ -966,7 +979,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 // Offline shell, with self-updating: when a newer version of Puri takes over,
 // the page reloads itself once so nobody is ever stuck on an old copy.
-const APP_VERSION = "18";
+const APP_VERSION = "19";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   let reloaded = false;
