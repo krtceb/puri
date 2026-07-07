@@ -168,6 +168,7 @@ async function handleListen(request, env, u) {
       const fd = new FormData();
       fd.append("file", new Blob([buf], { type: ct }), "audio." + ext);
       fd.append("model", "whisper-large-v3");
+      fd.append("response_format", "verbose_json"); // also reports the detected language
       const glang = u.searchParams.get("lang");
       if (glang && glang !== "auto") fd.append("language", glang);
       const gr = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
@@ -177,7 +178,11 @@ async function handleListen(request, env, u) {
       });
       if (gr.ok) {
         const j = await gr.json();
-        return new Response(JSON.stringify({ text: ((j && j.text) || "").trim(), via: "groq" }), {
+        return new Response(JSON.stringify({
+          text: ((j && j.text) || "").trim(),
+          language: (j && j.language) || "", // e.g. "english", "turkish", "georgian"
+          via: "groq",
+        }), {
           headers: { ...corsHeaders(), "Content-Type": "application/json" },
         });
       }

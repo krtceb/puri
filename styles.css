@@ -7,6 +7,8 @@
   --wine: #6D58BE;       /* primary lilac */
   --wine-deep: #57449C;  /* lilac hover */
   --wine-soft: #EAE4F8;
+  --bubble-me: #ECE6FA;    /* her side: light lilac */
+  --bubble-them: #E4E8F8;  /* the other voice: light periwinkle, a different tone */
   --teal: #6173C9;       /* periwinkle secondary */
   --teal-soft: #E6E9F7;
   --gold: #B79BD6;       /* soft orchid hairline */
@@ -451,15 +453,14 @@ body { overscroll-behavior-y: none; }
 }
 .bubble--me {
   align-self: flex-end;
-  background: var(--wine-soft);
-  border: 1px solid rgba(109, 88, 190, 0.16);
+  background: var(--bubble-me);
+  border: 1px solid rgba(109, 88, 190, 0.18);
   border-bottom-right-radius: 6px;
 }
 .bubble--them {
   align-self: flex-start;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--teal);
+  background: var(--bubble-them);
+  border: 1px solid rgba(97, 115, 201, 0.22);
   border-bottom-left-radius: 6px;
 }
 .bubble__small { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
@@ -503,7 +504,6 @@ body { overscroll-behavior-y: none; }
   padding-top: 4px;
 }
 .talk-dock-row { display: flex; gap: 10px; align-items: center; }
-.talk-type { margin: 0; }
 .version { color: var(--muted); opacity: 0.55; font-size: 11px; margin: 2px 0 0; }
 
 /* ---------- live scan ---------- */

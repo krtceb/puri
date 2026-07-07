@@ -497,18 +497,32 @@ function recordSupported() {
 }
 
 // ---- conversation thread ----
-const convoLog = []; // {side: "me"|"them", ka, other}
-function bubbleEl(side, ka, other) {
-  const w = el("div", "bubble bubble--" + side);
-  if (side === "me") {
-    w.appendChild(el("p", "bubble__small", other));       // what she said
-    w.appendChild(el("p", "bubble__ka", ka));             // Georgian, big
-    w.appendChild(el("p", "bubble__translit", translit(ka)));
-  } else {
-    w.appendChild(el("p", "bubble__small", ka));          // their Georgian
-    w.appendChild(el("p", "bubble__big", other));         // translation, big
+// Each language gets its own side. The first voice to speak takes one side, the
+// next different language takes the other, so two speakers never share a side.
+// Which side is which doesn't matter, only that they differ.
+const convoLog = []; // {side, georgian, other}
+const sideByLang = {};
+let sidesGiven = 0;
+function sideForLang(langKey) {
+  if (!(langKey in sideByLang)) {
+    sideByLang[langKey] = sidesGiven % 2 === 0 ? "me" : "them";
+    sidesGiven++;
   }
-  w.onclick = () => openShow(ka, other, myLang);
+  return sideByLang[langKey];
+}
+// format "out": a non-Georgian voice -> show big Georgian for the listener.
+// format "in": a Georgian (or Russian) voice -> show it in her language.
+function bubbleEl(side, format, georgian, other) {
+  const w = el("div", "bubble bubble--" + side);
+  if (format === "out") {
+    w.appendChild(el("p", "bubble__small", other));        // the words as spoken
+    w.appendChild(el("p", "bubble__ka", georgian));        // Georgian, big
+    w.appendChild(el("p", "bubble__translit", translit(georgian)));
+  } else {
+    w.appendChild(el("p", "bubble__small", georgian));     // as heard, its own script
+    w.appendChild(el("p", "bubble__big", other));          // shown in her language
+  }
+  w.onclick = () => openShow(georgian, other, myLang);
   return w;
 }
 function scrollConvo() {
@@ -516,12 +530,6 @@ function scrollConvo() {
   c.scrollTop = c.scrollHeight; // stay pinned to the newest line
 }
 function showTalkClear() { $("talk-clear").hidden = convoLog.length === 0; }
-function addBubble(side, ka, other) {
-  convoLog.push({ side, ka, other });
-  $("convo").appendChild(bubbleEl(side, ka, other));
-  showTalkClear();
-  scrollConvo();
-}
 // A "…" bubble the instant recording stops, so it feels immediate while working.
 function addPending() {
   const w = el("div", "bubble bubble--pending");
@@ -531,9 +539,9 @@ function addPending() {
   return w;
 }
 function removePending(p) { if (p && p.parentNode) p.parentNode.removeChild(p); }
-function replacePending(p, side, ka, other) {
-  convoLog.push({ side, ka, other });
-  const w = bubbleEl(side, ka, other);
+function replacePending(p, side, format, georgian, other) {
+  convoLog.push({ side, georgian, other });
+  const w = bubbleEl(side, format, georgian, other);
   if (p && p.parentNode) p.parentNode.replaceChild(w, p);
   else $("convo").appendChild(w);
   showTalkClear();
@@ -541,13 +549,15 @@ function replacePending(p, side, ka, other) {
 }
 function clearConvo() {
   convoLog.length = 0;
+  for (const k in sideByLang) delete sideByLang[k];
+  sidesGiven = 0;
   $("convo").innerHTML = "";
   $("talk-clear").hidden = true;
   $("talk-status").textContent = "";
 }
 
 async function startMic() {
-  if (!recordSupported()) { toast("This phone can't record here. Use 'They type instead'."); return; }
+  if (!recordSupported()) { toast("This phone can't record here. Use the Translate tab instead."); return; }
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
@@ -585,27 +595,31 @@ async function onMicStop() {
     if (!res.ok) throw new Error("listen");
     const j = await res.json();
     const said = (j.text || "").trim();
+    const language = (j.language || "").toLowerCase();
     if (!said) { removePending(pending); $("talk-status").textContent = "Didn't catch that. Try again, a little closer."; return; }
-    await routeHeard(said, pending);
+    await routeHeard(said, language, pending);
   } catch {
     removePending(pending);
-    $("talk-status").textContent = "Couldn't understand that. Try again, or use 'They type instead'.";
+    $("talk-status").textContent = "Couldn't understand that. Try again, a little closer.";
   }
 }
-// Decide who spoke from the script Whisper wrote, then translate and place it.
-async function routeHeard(said, pending) {
+// Everything runs off the language Whisper heard, never the alphabet on screen.
+// That language picks the side, and it decides the direction: English and
+// Türkçe are her languages, so they go out as spoken Georgian; any other voice
+// (Georgian, Russian, anything) is shown to her in her language.
+async function routeHeard(said, language, pending) {
+  const lang = (language || "").toLowerCase();
+  const side = sideForLang(lang || "unknown");
+  const outgoing = lang === "english" || lang === "turkish";
   try {
-    if (GEORGIAN.test(said) || CYRILLIC.test(said)) {
-      // Georgian or Russian: the other person spoke -> show it in her language
-      const pair = GEORGIAN.test(said) ? "ka|" : "ru|";
-      const out = await translate(said, pair + myLang);
-      replacePending(pending, "them", said, out);
-    } else {
-      // English or Türkçe: she spoke -> big Georgian, and Eka says it aloud
+    if (outgoing) {
       const ka = await translate(said, "auto|ka");
-      replacePending(pending, "me", ka, said);
-      speakGeorgian(ka);
+      replacePending(pending, side, "out", ka, said);
+      speakGeorgian(ka); // Eka says it aloud for the listener
       renderResult(ka, said, myLang); // also lands in Translate, so it can be saved
+    } else {
+      const out = await translate(said, "auto|" + myLang);
+      replacePending(pending, side, "in", said, out);
     }
     $("talk-status").textContent = "";
   } catch {
@@ -805,37 +819,9 @@ function init() {
     $("mic").onclick = () => (micActive ? stopMic() : startMic());
   } else {
     $("mic").disabled = true;
-    $("talk-status").textContent = "This phone can't record here. Use 'They type' below.";
+    $("talk-status").textContent = "This phone can't record here. Use the Translate tab instead.";
   }
   $("talk-clear").onclick = clearConvo;
-  $("them-type").onclick = () => {
-    $("type-input").value = "";
-    $("type-sheet").hidden = false;
-    $("type-input").focus();
-  };
-  $("type-cancel").onclick = () => ($("type-sheet").hidden = true);
-  $("type-sheet").addEventListener("click", (e) => {
-    if (e.target.id === "type-sheet") $("type-sheet").hidden = true;
-  });
-  $("type-done").onclick = async () => {
-    const ka = $("type-input").value.trim();
-    if (!ka) return;
-    $("type-sheet").hidden = true;
-    $("talk-status").textContent = "Translating…";
-    try {
-      // their typed message: Georgian usually, but let the usual detection decide
-      const isKa = GEORGIAN.test(ka);
-      const isRu = CYRILLIC.test(ka);
-      const pair = isKa ? "ka|" : isRu ? "ru|" : "auto|";
-      const out = pair === "auto|"
-        ? await translate(ka, "auto|" + myLang)
-        : await translate(ka, pair + myLang);
-      $("talk-status").textContent = "";
-      addBubble("them", ka, out);
-    } catch {
-      $("talk-status").textContent = "Couldn't translate that. Check your signal.";
-    }
-  };
 
   $("btn-save").onclick = openSaveSheet;
   $("save-cancel").onclick = () => ($("save-sheet").hidden = true);
