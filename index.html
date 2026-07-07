@@ -128,36 +128,34 @@
     </main>
 
     <!-- ===== Talk view ===== -->
-    <main id="view-talk" class="view">
+    <main id="view-talk" class="view view--talk">
       <header class="topbar">
         <div class="wordmark">
           <span class="wordmark__ka">საუბარი</span>
         </div>
       </header>
       <section class="talk">
-        <div class="seg" role="group" aria-label="Choose your language">
-          <span class="seg__thumb" aria-hidden="true"></span>
-          <button class="seg__btn" data-lang="en" type="button">English</button>
-          <button class="seg__btn" data-lang="tr" type="button">Türkçe</button>
+        <div class="talk-top">
+          <div class="seg" role="group" aria-label="Show translations in">
+            <span class="seg__thumb" aria-hidden="true"></span>
+            <button class="seg__btn" data-lang="en" type="button">English</button>
+            <button class="seg__btn" data-lang="tr" type="button">Türkçe</button>
+          </div>
         </div>
+
         <div class="convo" id="convo"></div>
-        <p class="talk-status" id="talk-status"></p>
-        <div class="talk-mics">
-          <div class="micwrap">
-            <button id="mic" class="mic" type="button" aria-label="Speak in your language">
-              <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
-            </button>
-            <span class="mic-label" id="mic-label-me">You</span>
+
+        <div class="talk-dock">
+          <p class="talk-status" id="talk-status"></p>
+          <button id="mic" class="mic" type="button" aria-label="Tap to speak">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
+          </button>
+          <div class="talk-dock-row">
+            <button id="them-type" class="btn btn--ghost talk-type" type="button">They type · აკრიფეთ</button>
+            <button id="talk-clear" class="btn btn--ghost" type="button" hidden>Clear</button>
           </div>
-          <div class="micwrap">
-            <button id="mic-them" class="mic mic--them" type="button" aria-label="They speak Georgian">
-              <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>
-            </button>
-            <span class="mic-label">მათ · Them</span>
-          </div>
+          <p class="version" id="app-version"></p>
         </div>
-        <button id="them-type" class="btn btn--ghost talk-type" type="button">They type instead · აკრიფეთ</button>
-        <p class="version" id="app-version"></p>
       </section>
     </main>
 

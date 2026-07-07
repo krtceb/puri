@@ -478,25 +478,27 @@ function openShow(ka, src, lang) {
 }
 function closeShow() { $("show").hidden = true; }
 
-// ---- talk mode (free, built into the browser) ----
-// iOS quirk: Safari's speech engine often never fires its "ended" event after
-// stop(), so everything funnels through finishRec(), which also runs from a
-// watchdog timer. Whichever path fires first wins; the rest become no-ops.
-let rec = null;
-let recActive = false;
-let recDone = true;
-let heardText = "";
+// ---- talk mode: one auto-detecting mic ----
+// Anyone speaks into the same mic. The audio goes to Whisper (via our relay,
+// lang=auto), which writes it back in its own script. We read that script to
+// tell who spoke: Georgian/Russian is the other person (show it in her
+// language); Latin is her (show big Georgian and say it aloud). Nobody picks a
+// language.
+let mediaRec = null;
+let mediaChunks = [];
+let micActive = false;
+let micStream = null;
 function syncMic() {
-  $("mic").classList.toggle("is-live", recActive);
-  $("mic").setAttribute("aria-label", recActive ? "Stop listening" : "Start listening");
+  $("mic").classList.toggle("is-live", micActive);
+  $("mic").setAttribute("aria-label", micActive ? "Stop and translate" : "Tap to speak");
 }
-function talkSupported() {
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+function recordSupported() {
+  return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
+
 // ---- conversation thread ----
 const convoLog = []; // {side: "me"|"them", ka, other}
-function addBubble(side, ka, other) {
-  convoLog.push({ side, ka, other });
+function bubbleEl(side, ka, other) {
   const w = el("div", "bubble bubble--" + side);
   if (side === "me") {
     w.appendChild(el("p", "bubble__small", other));       // what she said
@@ -507,117 +509,109 @@ function addBubble(side, ka, other) {
     w.appendChild(el("p", "bubble__big", other));         // translation, big
   }
   w.onclick = () => openShow(ka, other, myLang);
+  return w;
+}
+function scrollConvo() {
+  const c = $("convo");
+  c.scrollTop = c.scrollHeight; // stay pinned to the newest line
+}
+function showTalkClear() { $("talk-clear").hidden = convoLog.length === 0; }
+function addBubble(side, ka, other) {
+  convoLog.push({ side, ka, other });
+  $("convo").appendChild(bubbleEl(side, ka, other));
+  showTalkClear();
+  scrollConvo();
+}
+// A "…" bubble the instant recording stops, so it feels immediate while working.
+function addPending() {
+  const w = el("div", "bubble bubble--pending");
+  w.appendChild(el("span")); w.appendChild(el("span")); w.appendChild(el("span"));
   $("convo").appendChild(w);
-  w.scrollIntoView({ behavior: "smooth", block: "end" });
+  scrollConvo();
+  return w;
+}
+function removePending(p) { if (p && p.parentNode) p.parentNode.removeChild(p); }
+function replacePending(p, side, ka, other) {
+  convoLog.push({ side, ka, other });
+  const w = bubbleEl(side, ka, other);
+  if (p && p.parentNode) p.parentNode.replaceChild(w, p);
+  else $("convo").appendChild(w);
+  showTalkClear();
+  scrollConvo();
+}
+function clearConvo() {
+  convoLog.length = 0;
+  $("convo").innerHTML = "";
+  $("talk-clear").hidden = true;
+  $("talk-status").textContent = "";
 }
 
-async function finishRec() {
-  if (recDone) return;
-  recDone = true;
-  recActive = false;
-  syncMic();
-  try { rec && rec.abort(); } catch {}
-  const text = heardText.trim();
-  if (!text) { $("talk-status").textContent = "Didn't catch that. Tap the mic and try again."; return; }
-  $("talk-status").textContent = "Translating…";
+async function startMic() {
+  if (!recordSupported()) { toast("This phone can't record here. Use 'They type instead'."); return; }
   try {
-    const ka = await translate(text, myLang + "|ka");
-    $("talk-status").textContent = "";
-    addBubble("me", ka, text);
-    speakGeorgian(ka); // say it out loud so they hear it immediately
-    renderResult(ka, text, myLang); // also lands in Translate, so it can be saved
-  } catch {
-    $("talk-status").textContent = "Couldn't translate. Check your signal and try again.";
-  }
-}
-
-// ---- their side: Georgian speech through the relay's ears (Whisper) ----
-let themRec = null;
-let themChunks = [];
-let themActive = false;
-function syncThemMic() {
-  $("mic-them").classList.toggle("is-live", themActive);
-}
-async function startThem() {
-  if (!window.MediaRecorder || !navigator.mediaDevices) {
-    toast("This phone can't record here. Use 'They type instead'.");
-    return;
-  }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch {
     toast("Puri needs microphone permission.");
     return;
   }
-  themChunks = [];
-  themRec = new MediaRecorder(stream);
-  themRec.ondataavailable = (e) => { if (e.data && e.data.size) themChunks.push(e.data); };
-  themRec.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop());
-    themActive = false;
-    syncThemMic();
-    const blob = new Blob(themChunks, { type: themRec.mimeType || "audio/mp4" });
-    if (blob.size < 1500) { $("talk-status").textContent = "Didn't catch that. Hold the phone closer and try again."; return; }
-    $("talk-status").textContent = "Understanding Georgian…";
-    try {
-      const res = await fetch(VOICE_URL + "listen?lang=ka", {
-        method: "POST",
-        headers: { "Content-Type": blob.type || "audio/mp4" },
-        body: blob,
-      });
-      if (!res.ok) throw new Error("listen");
-      const j = await res.json();
-      const ka = (j.text || "").trim();
-      if (!ka) { $("talk-status").textContent = "Didn't catch that. Try again, a little closer."; return; }
-      const out = await translate(ka, "ka|" + myLang);
-      $("talk-status").textContent = "";
-      addBubble("them", ka, out);
-    } catch {
-      $("talk-status").textContent = "Couldn't understand that. Try again, or use 'They type instead'.";
-    }
-  };
-  themRec.start();
-  themActive = true;
-  syncThemMic();
-  $("talk-status").textContent = "Listening in Georgian… tap again when they finish.";
-}
-function stopThem() { try { themRec && themRec.stop(); } catch {} }
-function startRec() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  rec = new SR();
-  rec.lang = myLang === "tr" ? "tr-TR" : "en-US";
-  rec.interimResults = true;
-  rec.continuous = false;
-  rec.maxAlternatives = 1;
-  heardText = "";
-  recDone = false;
-  rec.onresult = (e) => {
-    let full = "";
-    for (const r of e.results) full += r[0].transcript;
-    if (full) heardText = full; // keep interim text too; iOS may never mark it final
-    $("talk-status").textContent = heardText || "Listening…";
-  };
-  rec.onend = finishRec;
-  rec.onspeechend = () => setTimeout(finishRec, 700); // iOS: engine noticed silence
-  rec.onerror = (e) => {
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      recDone = true;
-      recActive = false;
-      syncMic();
-      $("talk-status").textContent = "Puri needs microphone permission. Allow it in Settings > Apps > Safari.";
-      return;
-    }
-    finishRec(); // e.g. "no-speech": finalize with whatever we heard
-  };
-  recActive = true;
+  mediaChunks = [];
+  mediaRec = new MediaRecorder(micStream);
+  mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) mediaChunks.push(e.data); };
+  mediaRec.onstop = onMicStop;
+  mediaRec.start();
+  micActive = true;
   syncMic();
   $("talk-status").textContent = "Listening… tap again when you finish.";
-  rec.start();
 }
-function stopRec() {
-  try { rec && rec.stop(); } catch {}
-  setTimeout(finishRec, 900); // watchdog: iOS often skips the ended event
+function stopMic() {
+  micActive = false;
+  syncMic();
+  try { mediaRec && mediaRec.stop(); } catch {}
+}
+async function onMicStop() {
+  if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+  micActive = false;
+  syncMic();
+  const blob = new Blob(mediaChunks, { type: (mediaRec && mediaRec.mimeType) || "audio/mp4" });
+  if (blob.size < 1500) { $("talk-status").textContent = "Didn't catch that. Try again, a little closer."; return; }
+  const pending = addPending(); // instant feedback while Whisper listens
+  $("talk-status").textContent = "";
+  try {
+    const res = await fetch(VOICE_URL + "listen?lang=auto", {
+      method: "POST",
+      headers: { "Content-Type": blob.type || "audio/mp4" },
+      body: blob,
+    });
+    if (!res.ok) throw new Error("listen");
+    const j = await res.json();
+    const said = (j.text || "").trim();
+    if (!said) { removePending(pending); $("talk-status").textContent = "Didn't catch that. Try again, a little closer."; return; }
+    await routeHeard(said, pending);
+  } catch {
+    removePending(pending);
+    $("talk-status").textContent = "Couldn't understand that. Try again, or use 'They type instead'.";
+  }
+}
+// Decide who spoke from the script Whisper wrote, then translate and place it.
+async function routeHeard(said, pending) {
+  try {
+    if (GEORGIAN.test(said) || CYRILLIC.test(said)) {
+      // Georgian or Russian: the other person spoke -> show it in her language
+      const pair = GEORGIAN.test(said) ? "ka|" : "ru|";
+      const out = await translate(said, pair + myLang);
+      replacePending(pending, "them", said, out);
+    } else {
+      // English or Türkçe: she spoke -> big Georgian, and Eka says it aloud
+      const ka = await translate(said, "auto|ka");
+      replacePending(pending, "me", ka, said);
+      speakGeorgian(ka);
+      renderResult(ka, said, myLang); // also lands in Translate, so it can be saved
+    }
+    $("talk-status").textContent = "";
+  } catch {
+    removePending(pending);
+    $("talk-status").textContent = "Couldn't translate. Check your signal and try again.";
+  }
 }
 
 // ---- live scan (point the camera, no photo taking) ----
@@ -806,14 +800,14 @@ function init() {
     renderBook();
   });
 
-  // conversation mode
-  if (talkSupported()) {
-    $("mic").onclick = () => (recActive ? stopRec() : startRec());
+  // conversation mode: one auto-detecting mic
+  if (recordSupported()) {
+    $("mic").onclick = () => (micActive ? stopMic() : startMic());
   } else {
     $("mic").disabled = true;
-    $("talk-hint").textContent = "This browser can't listen here. Use the Translate tab and type instead.";
+    $("talk-status").textContent = "This phone can't record here. Use 'They type' below.";
   }
-  $("mic-them").onclick = () => (themActive ? stopThem() : startThem());
+  $("talk-clear").onclick = clearConvo;
   $("them-type").onclick = () => {
     $("type-input").value = "";
     $("type-sheet").hidden = false;
