@@ -185,25 +185,61 @@ async function getOcrWorker() {
 
 // The reader scores every word it thinks it saw. Keep confident, Georgian words;
 // drop the smudge-guesses that turn signs into punctuation soup.
-function cleanOcr(data) {
+function cleanOcrScored(data) {
   let words = data.words || [];
   if (!words.length && data.blocks) {
     (data.blocks || []).forEach((b) =>
       (b.paragraphs || []).forEach((p) =>
         (p.lines || []).forEach((l) => (l.words || []).forEach((w) => words.push(w)))));
   }
-  let toks;
+  let kept;
   if (words.length) {
-    toks = words.filter((w) => (w.confidence || 0) >= 50).map((w) => (w.text || "").trim());
+    kept = words.filter((w) => (w.confidence || 0) >= 50);
   } else {
-    toks = (data.text || "").split(/\s+/); // fallback if the reader gave no word scores
+    // fallback if the reader gave no word scores
+    kept = (data.text || "").split(/\s+/).map((t) => ({ text: t, confidence: 55 }));
   }
-  return toks
+  const text = kept
+    .map((w) => (w.text || "").trim())
     .map((t) => t.replace(/^[^ა-ჰa-zA-ZА-яЁё0-9]+/, "").replace(/[^ა-ჰa-zA-ZА-яЁё0-9?!.,]+$/, ""))
     .filter((t) => /[ა-ჰa-zA-ZА-яЁё]/.test(t))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+  const score = kept.length
+    ? kept.reduce((n, w) => n + (w.confidence || 0), 0) / kept.length
+    : 0;
+  return { text, score };
+}
+function cleanOcr(data) { return cleanOcrScored(data).text; }
+
+// How much two reads look like the same sign (0..1 shared words).
+function wordOverlap(a, b) {
+  const A = new Set(a.toLowerCase().split(" "));
+  const B = new Set(b.toLowerCase().split(" "));
+  let shared = 0;
+  A.forEach((w) => { if (B.has(w)) shared++; });
+  return shared / Math.min(A.size, B.size);
+}
+
+// Cheap sharpness estimate so motion-blurred frames never reach the reader.
+function frameSharpness(v) {
+  const c = frameSharpness._c || (frameSharpness._c = document.createElement("canvas"));
+  c.width = 120; c.height = 90;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(v, 0, 0, 120, 90);
+  const d = ctx.getImageData(0, 0, 120, 90).data;
+  let e = 0;
+  for (let y = 0; y < 89; y++) {
+    for (let x = 0; x < 119; x++) {
+      const i = (y * 120 + x) * 4;
+      const g = d[i] * 0.3 + d[i + 1] * 0.6 + d[i + 2] * 0.1;
+      const gr = d[i + 4] * 0.3 + d[i + 5] * 0.6 + d[i + 6] * 0.1;
+      const gb = d[i + 480] * 0.3 + d[i + 481] * 0.6 + d[i + 482] * 0.1;
+      e += (g - gr) * (g - gr) + (g - gb) * (g - gb);
+    }
+  }
+  return e / (119 * 89);
 }
 
 // Huge photos are slow and noisy; a steady 1600px-wide image reads best.
@@ -515,6 +551,8 @@ let scanWorker = null;
 let lastScanRaw = "";
 let lastScanKa = "";
 let lastScanOut = "";
+let scanBest = 0;  // confidence of the best read so far
+let sharpMax = 0;  // sharpest frame seen lately (adaptive blur bar)
 
 async function openScan() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -557,7 +595,13 @@ async function scanLoop() {
     try {
       const v = $("scan-video");
       if (v.videoWidth) {
-        const scale = Math.min(1, 1600 / v.videoWidth);
+        // Skip motion-blurred frames; the sharpness bar adapts to the scene.
+        const sharp = frameSharpness(v);
+        if (sharp > sharpMax) sharpMax = sharp;
+        sharpMax *= 0.985; // slow decay so a lighting change doesn't lock us out
+        if (sharp < sharpMax * 0.55) { scanBusy = false; scanTimer = setTimeout(scanLoop, 200); return; }
+
+        const scale = Math.min(1, 1920 / v.videoWidth);
         const c = document.createElement("canvas");
         c.width = Math.round(v.videoWidth * scale);
         c.height = Math.round(v.videoHeight * scale);
@@ -565,9 +609,13 @@ async function scanLoop() {
         ctx.filter = "grayscale(1) contrast(1.5)"; // labels read far better flattened
         ctx.drawImage(v, 0, 0, c.width, c.height);
         const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
-        const text = cleanOcr(data);
+        const { text, score } = cleanOcrScored(data);
         const letters = (text.match(/[ა-ჰa-zA-ZА-яЁё]/g) || []).length;
-        if (text && letters >= 4 && text !== lastScanRaw) {
+        // Pointed at a different sign? Start a fresh contest.
+        if (text && letters >= 4 && lastScanRaw && wordOverlap(text, lastScanRaw) < 0.3) scanBest = 0;
+        // Best read wins: only replace the result when a sharper frame beats it.
+        if (text && letters >= 4 && text !== lastScanRaw && score > scanBest + 1) {
+          scanBest = score;
           lastScanRaw = text;
           try {
             if (GEORGIAN.test(text) || CYRILLIC.test(text)) {
@@ -609,6 +657,8 @@ function closeScan() {
   lastScanRaw = "";
   lastScanKa = "";
   lastScanOut = "";
+  scanBest = 0;
+  sharpMax = 0;
 }
 
 // ---- views ----
@@ -916,7 +966,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 // Offline shell, with self-updating: when a newer version of Puri takes over,
 // the page reloads itself once so nobody is ever stuck on an old copy.
-const APP_VERSION = "16";
+const APP_VERSION = "17";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   let reloaded = false;
