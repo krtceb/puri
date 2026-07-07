@@ -966,7 +966,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 // Offline shell, with self-updating: when a newer version of Puri takes over,
 // the page reloads itself once so nobody is ever stuck on an old copy.
-const APP_VERSION = "17";
+const APP_VERSION = "18";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   let reloaded = false;
