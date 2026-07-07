@@ -148,12 +148,77 @@ async function synthesize(text, voiceName) {
   return audio;
 }
 
+// POST /listen?lang=ka with an audio body -> {"text": "..."} via Whisper on
+// Workers AI (free allocation on this account; fails politely if exhausted).
+async function handleListen(request, env, u) {
+  const buf = new Uint8Array(await request.arrayBuffer());
+  if (!buf.length) return new Response("missing audio", { status: 400, headers: corsHeaders() });
+  if (buf.length > 4_000_000) return new Response("audio too long", { status: 413, headers: corsHeaders() });
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+  }
+  // Preferred: full-size Whisper on Groq (free tier) - the only free model that
+  // writes Georgian in Georgian. Falls back to Workers AI if no key / any error.
+  if (env.GROQ_API_KEY) {
+    try {
+      const ct = request.headers.get("Content-Type") || "audio/mp4";
+      const ext = ct.includes("mpeg") ? "mp3" : ct.includes("ogg") ? "ogg" : ct.includes("webm") ? "webm" : ct.includes("wav") ? "wav" : "mp4";
+      const fd = new FormData();
+      fd.append("file", new Blob([buf], { type: ct }), "audio." + ext);
+      fd.append("model", "whisper-large-v3");
+      const glang = u.searchParams.get("lang");
+      if (glang && glang !== "auto") fd.append("language", glang);
+      const gr = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: "Bearer " + env.GROQ_API_KEY },
+        body: fd,
+      });
+      if (gr.ok) {
+        const j = await gr.json();
+        return new Response(JSON.stringify({ text: ((j && j.text) || "").trim(), via: "groq" }), {
+          headers: { ...corsHeaders(), "Content-Type": "application/json" },
+        });
+      }
+    } catch {}
+    // fall through to Workers AI below
+  }
+
+  const model = u.searchParams.get("model") || "turbo";
+  let payload;
+  if (model === "classic") {
+    // @cf/openai/whisper takes raw byte-array input, no language hint
+    payload = { audio: [...buf] };
+  } else {
+    payload = { audio: btoa(bin) };
+    const lang = u.searchParams.get("lang");
+    if (lang && lang !== "auto") payload.language = lang;
+    // task=translate makes Whisper output English directly, whatever was spoken
+    if (u.searchParams.get("task") === "translate") payload.task = "translate";
+  }
+  try {
+    const r = await env.AI.run(
+      model === "classic" ? "@cf/openai/whisper" : "@cf/openai/whisper-large-v3-turbo",
+      payload
+    );
+    return new Response(JSON.stringify({ text: ((r && r.text) || "").trim() }), {
+      headers: { ...corsHeaders(), "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response("listen failed: " + e.message, { status: 502, headers: corsHeaders() });
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders() });
     }
     const u = new URL(request.url);
+    if (u.pathname === "/listen" && request.method === "POST") {
+      return handleListen(request, env, u);
+    }
     const text = (u.searchParams.get("q") || "").trim().slice(0, 800);
     const voice = VOICES[u.searchParams.get("voice") || "eka"] || VOICES.eka;
     if (!text) {

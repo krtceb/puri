@@ -493,6 +493,24 @@ function syncMic() {
 function talkSupported() {
   return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
+// ---- conversation thread ----
+const convoLog = []; // {side: "me"|"them", ka, other}
+function addBubble(side, ka, other) {
+  convoLog.push({ side, ka, other });
+  const w = el("div", "bubble bubble--" + side);
+  if (side === "me") {
+    w.appendChild(el("p", "bubble__small", other));       // what she said
+    w.appendChild(el("p", "bubble__ka", ka));             // Georgian, big
+    w.appendChild(el("p", "bubble__translit", translit(ka)));
+  } else {
+    w.appendChild(el("p", "bubble__small", ka));          // their Georgian
+    w.appendChild(el("p", "bubble__big", other));         // translation, big
+  }
+  w.onclick = () => openShow(ka, other, myLang);
+  $("convo").appendChild(w);
+  w.scrollIntoView({ behavior: "smooth", block: "end" });
+}
+
 async function finishRec() {
   if (recDone) return;
   recDone = true;
@@ -505,12 +523,66 @@ async function finishRec() {
   try {
     const ka = await translate(text, myLang + "|ka");
     $("talk-status").textContent = "";
+    addBubble("me", ka, text);
+    speakGeorgian(ka); // say it out loud so they hear it immediately
     renderResult(ka, text, myLang); // also lands in Translate, so it can be saved
-    openShow(ka, text, myLang);
   } catch {
     $("talk-status").textContent = "Couldn't translate. Check your signal and try again.";
   }
 }
+
+// ---- their side: Georgian speech through the relay's ears (Whisper) ----
+let themRec = null;
+let themChunks = [];
+let themActive = false;
+function syncThemMic() {
+  $("mic-them").classList.toggle("is-live", themActive);
+}
+async function startThem() {
+  if (!window.MediaRecorder || !navigator.mediaDevices) {
+    toast("This phone can't record here. Use 'They type instead'.");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    toast("Puri needs microphone permission.");
+    return;
+  }
+  themChunks = [];
+  themRec = new MediaRecorder(stream);
+  themRec.ondataavailable = (e) => { if (e.data && e.data.size) themChunks.push(e.data); };
+  themRec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    themActive = false;
+    syncThemMic();
+    const blob = new Blob(themChunks, { type: themRec.mimeType || "audio/mp4" });
+    if (blob.size < 1500) { $("talk-status").textContent = "Didn't catch that. Hold the phone closer and try again."; return; }
+    $("talk-status").textContent = "Understanding Georgian…";
+    try {
+      const res = await fetch(VOICE_URL + "listen?lang=ka", {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "audio/mp4" },
+        body: blob,
+      });
+      if (!res.ok) throw new Error("listen");
+      const j = await res.json();
+      const ka = (j.text || "").trim();
+      if (!ka) { $("talk-status").textContent = "Didn't catch that. Try again, a little closer."; return; }
+      const out = await translate(ka, "ka|" + myLang);
+      $("talk-status").textContent = "";
+      addBubble("them", ka, out);
+    } catch {
+      $("talk-status").textContent = "Couldn't understand that. Try again, or use 'They type instead'.";
+    }
+  };
+  themRec.start();
+  themActive = true;
+  syncThemMic();
+  $("talk-status").textContent = "Listening in Georgian… tap again when they finish.";
+}
+function stopThem() { try { themRec && themRec.stop(); } catch {} }
 function startRec() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   rec = new SR();
@@ -524,8 +596,7 @@ function startRec() {
     let full = "";
     for (const r of e.results) full += r[0].transcript;
     if (full) heardText = full; // keep interim text too; iOS may never mark it final
-    $("talk-heard").textContent = heardText;
-    $("talk-last").hidden = !heardText;
+    $("talk-status").textContent = heardText || "Listening…";
   };
   rec.onend = finishRec;
   rec.onspeechend = () => setTimeout(finishRec, 700); // iOS: engine noticed silence
@@ -542,8 +613,6 @@ function startRec() {
   recActive = true;
   syncMic();
   $("talk-status").textContent = "Listening… tap again when you finish.";
-  $("talk-heard").textContent = "";
-  $("talk-last").hidden = true;
   rec.start();
 }
 function stopRec() {
@@ -737,13 +806,42 @@ function init() {
     renderBook();
   });
 
-  // talk mode
+  // conversation mode
   if (talkSupported()) {
     $("mic").onclick = () => (recActive ? stopRec() : startRec());
   } else {
     $("mic").disabled = true;
     $("talk-hint").textContent = "This browser can't listen here. Use the Translate tab and type instead.";
   }
+  $("mic-them").onclick = () => (themActive ? stopThem() : startThem());
+  $("them-type").onclick = () => {
+    $("type-input").value = "";
+    $("type-sheet").hidden = false;
+    $("type-input").focus();
+  };
+  $("type-cancel").onclick = () => ($("type-sheet").hidden = true);
+  $("type-sheet").addEventListener("click", (e) => {
+    if (e.target.id === "type-sheet") $("type-sheet").hidden = true;
+  });
+  $("type-done").onclick = async () => {
+    const ka = $("type-input").value.trim();
+    if (!ka) return;
+    $("type-sheet").hidden = true;
+    $("talk-status").textContent = "Translating…";
+    try {
+      // their typed message: Georgian usually, but let the usual detection decide
+      const isKa = GEORGIAN.test(ka);
+      const isRu = CYRILLIC.test(ka);
+      const pair = isKa ? "ka|" : isRu ? "ru|" : "auto|";
+      const out = pair === "auto|"
+        ? await translate(ka, "auto|" + myLang)
+        : await translate(ka, pair + myLang);
+      $("talk-status").textContent = "";
+      addBubble("them", ka, out);
+    } catch {
+      $("talk-status").textContent = "Couldn't translate that. Check your signal.";
+    }
+  };
 
   $("btn-save").onclick = openSaveSheet;
   $("save-cancel").onclick = () => ($("save-sheet").hidden = true);
@@ -979,7 +1077,7 @@ document.addEventListener("DOMContentLoaded", init);
 
 // Offline shell, with self-updating: when a newer version of Puri takes over,
 // the page reloads itself once so nobody is ever stuck on an old copy.
-const APP_VERSION = "19";
+const APP_VERSION = "20";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   let reloaded = false;
