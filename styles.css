@@ -415,6 +415,7 @@ body { overscroll-behavior-y: none; }
   text-align: left;
 }
 .talk-heard { margin: 5px 0 0; font-size: 17px; font-weight: 500; line-height: 1.4; }
+.version { color: var(--muted); opacity: 0.55; font-size: 11px; margin: 14px 0 0; }
 
 /* ---------- live scan ---------- */
 .scan {

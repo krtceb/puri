@@ -699,6 +699,9 @@ function init() {
   // prime voice list (some browsers load it lazily)
   if ("speechSynthesis" in window) speechSynthesis.getVoices();
 
+  const v = $("app-version");
+  if (v) v.textContent = "Puri v" + APP_VERSION;
+
   ensureSeeds();
 }
 
@@ -911,7 +914,15 @@ function ensureSeeds() {
 
 document.addEventListener("DOMContentLoaded", init);
 
-// Offline shell.
+// Offline shell, with self-updating: when a newer version of Puri takes over,
+// the page reloads itself once so nobody is ever stuck on an old copy.
+const APP_VERSION = "15";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloaded) return; // guard against reload loops
+    reloaded = true;
+    location.reload();
+  });
 }
