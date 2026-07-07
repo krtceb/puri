@@ -148,6 +148,7 @@ body { overscroll-behavior-y: none; }
 .btn--solid { background: var(--wine); color: #fff; flex: 1; }
 .btn--solid:hover { background: var(--wine-deep); }
 .btn--ghost { background: var(--card); color: var(--ink); border-color: var(--line); }
+.btn--icon { flex: 0 0 auto; width: 48px; padding: 12px; gap: 0; }
 .btn--save {
   width: 100%;
   margin-top: 14px;

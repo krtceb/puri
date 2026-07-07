@@ -47,18 +47,30 @@
 
         <div class="composer__actions">
           <input id="file" class="visually-hidden" type="file" accept="image/*" capture="environment" />
-          <button id="btn-photo" class="btn btn--ghost" type="button">
+          <button id="btn-photo" class="btn btn--ghost btn--icon" type="button">
             <span class="btn__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8h2.2l1.1-1.7a1 1 0 0 1 .84-.45h6.72a1 1 0 0 1 .84.45L17.3 8h2.2A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-8A1.5 1.5 0 0 1 4.5 8Z"/><circle cx="12" cy="13" r="3.3"/></svg>
-            </span> Photo
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8h2.2l1.1-1.7a1 1 0 0 1 .84-.45h6.72a1 1 0 0 1 .84.45L17.3 8h2.2A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-8A1.5 1.5 0 0 1 4.5 8Z"/><circle cx="12" cy="13" r="3.3"/></svg>
+            </span>
+            <span class="visually-hidden">Photo</span>
           </button>
-          <button id="btn-scan" class="btn btn--ghost" type="button">
+          <button id="btn-scan" class="btn btn--ghost btn--icon" type="button">
             <span class="btn__icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5V9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15M15 20h3.5a1.5 1.5 0 0 0 1.5-1.5V15"/><circle cx="12" cy="12" r="2.2"/></svg>
-            </span> Scan
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5V9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15M15 20h3.5a1.5 1.5 0 0 0 1.5-1.5V15"/><circle cx="12" cy="12" r="2.2"/></svg>
+            </span>
+            <span class="visually-hidden">Scan</span>
           </button>
-          <button id="btn-clear" class="btn btn--ghost" type="button" hidden>Clear</button>
-          <button id="btn-go" class="btn btn--solid" type="button">Translate</button>
+          <button id="btn-clear" class="btn btn--ghost btn--icon" type="button" hidden>
+            <span class="btn__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7l10 10M17 7L7 17"/></svg>
+            </span>
+            <span class="visually-hidden">Clear</span>
+          </button>
+          <button id="btn-go" class="btn btn--solid" type="button">
+            <span class="btn__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/></svg>
+            </span>
+            <span class="visually-hidden">Translate</span>
+          </button>
         </div>
       </section>
 
@@ -128,7 +140,6 @@
           <button class="seg__btn" data-lang="en" type="button">English</button>
           <button class="seg__btn" data-lang="tr" type="button">Türkçe</button>
         </div>
-        <p class="talk-hint" id="talk-hint">Your mic hears you. Their mic hears Georgian, or they can type.</p>
         <div class="convo" id="convo"></div>
         <p class="talk-status" id="talk-status"></p>
         <div class="talk-mics">
