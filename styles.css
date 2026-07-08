@@ -504,7 +504,6 @@ body { overscroll-behavior-y: none; }
   padding-top: 4px;
 }
 .talk-dock-row { display: flex; gap: 10px; align-items: center; }
-.version { color: var(--muted); opacity: 0.55; font-size: 11px; margin: 2px 0 0; }
 
 /* ---------- live scan ---------- */
 .scan {

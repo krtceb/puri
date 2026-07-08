@@ -167,7 +167,8 @@ async function handleListen(request, env, u) {
       const ext = ct.includes("mpeg") ? "mp3" : ct.includes("ogg") ? "ogg" : ct.includes("webm") ? "webm" : ct.includes("wav") ? "wav" : "mp4";
       const fd = new FormData();
       fd.append("file", new Blob([buf], { type: ct }), "audio." + ext);
-      fd.append("model", "whisper-large-v3");
+      // Default to the full model; the app can ask for turbo (~2x faster) via gmodel.
+      fd.append("model", u.searchParams.get("gmodel") || "whisper-large-v3");
       fd.append("response_format", "verbose_json"); // also reports the detected language
       const glang = u.searchParams.get("lang");
       if (glang && glang !== "auto") fd.append("language", glang);

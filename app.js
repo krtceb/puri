@@ -288,6 +288,10 @@ function speakSynth(text, lang) {
 // All voices come from our own free relay: Eka (Georgian), Jenny (English),
 // Emel (Türkçe). Falls back to a device voice if the relay is unreachable.
 const VOICE_URL = "https://puri-voice.puri-ebru.workers.dev/";
+// Whisper model for the Talk mic. Turbo is ~2x faster but badly mangles
+// Georgian (heard "მინდა ერთი ყავა" as Belarusian in Cyrillic), so we stay on
+// the full model. The relay accepts a gmodel param if we ever want to retest.
+const LISTEN_MODEL = "whisper-large-v3";
 let relayAudio = null;
 const voiceCache = new Map(); // voice+text -> object URL, so repeats play instantly
 async function speakViaRelay(text, voice, fallback) {
@@ -556,16 +560,33 @@ function clearConvo() {
   $("talk-status").textContent = "";
 }
 
+// Speech only needs mono at a low bitrate. Recording that way shrinks the
+// upload many times over, and on mobile data the upload is what makes Talk feel
+// slow. Prefer Opus where the phone supports it; fall back to whatever it has.
+function bestRecorderOpts() {
+  const opts = { audioBitsPerSecond: 24000 };
+  const types = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4", "audio/webm"];
+  const ok = window.MediaRecorder && MediaRecorder.isTypeSupported;
+  const t = ok && types.find((x) => MediaRecorder.isTypeSupported(x));
+  if (t) opts.mimeType = t;
+  return opts;
+}
 async function startMic() {
   if (!recordSupported()) { toast("This phone can't record here. Use the Translate tab instead."); return; }
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
   } catch {
     toast("Puri needs microphone permission.");
     return;
   }
   mediaChunks = [];
-  mediaRec = new MediaRecorder(micStream);
+  try {
+    mediaRec = new MediaRecorder(micStream, bestRecorderOpts());
+  } catch {
+    mediaRec = new MediaRecorder(micStream); // older phones: take the default
+  }
   mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) mediaChunks.push(e.data); };
   mediaRec.onstop = onMicStop;
   mediaRec.start();
@@ -587,7 +608,7 @@ async function onMicStop() {
   const pending = addPending(); // instant feedback while Whisper listens
   $("talk-status").textContent = "";
   try {
-    const res = await fetch(VOICE_URL + "listen?lang=auto", {
+    const res = await fetch(VOICE_URL + "listen?lang=auto&gmodel=" + LISTEN_MODEL, {
       method: "POST",
       headers: { "Content-Type": blob.type || "audio/mp4" },
       body: blob,
@@ -836,9 +857,6 @@ function init() {
   // prime voice list (some browsers load it lazily)
   if ("speechSynthesis" in window) speechSynthesis.getVoices();
 
-  const v = $("app-version");
-  if (v) v.textContent = "Puri v" + APP_VERSION;
-
   // re-measure the toggle pill once fonts finish loading (text widths shift)
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncLang);
   setTimeout(syncLang, 400);
@@ -1057,7 +1075,6 @@ document.addEventListener("DOMContentLoaded", init);
 
 // Offline shell, with self-updating: when a newer version of Puri takes over,
 // the page reloads itself once so nobody is ever stuck on an old copy.
-const APP_VERSION = "20";
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   let reloaded = false;
