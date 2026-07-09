@@ -76,6 +76,10 @@
 
       <section id="status" class="status" hidden></section>
 
+      <section id="pairs" class="pairs" hidden></section>
+
+      <button id="btn-back-pairs" class="btn btn--ghost btn--back" type="button" hidden>‹ All items</button>
+
       <section id="result" class="result" hidden>
         <article class="ka-card">
           <header class="out__head">
@@ -182,9 +186,10 @@
   <div class="scan" id="scan" hidden>
     <video id="scan-video" class="scan__video" autoplay playsinline muted></video>
     <button class="show__close scan__close" id="scan-close" type="button" aria-label="Close">✕</button>
-    <div class="scan__frame" aria-hidden="true"></div>
+    <div class="scan__frame" id="scan-frame" aria-hidden="true"></div>
     <div class="scan__panel">
       <p class="scan__status" id="scan-status">Frame the text, then tap the button.</p>
+      <div class="pairs" id="scan-pairs" hidden></div>
       <p class="scan__ka" id="scan-ka"></p>
       <p class="scan__out" id="scan-out"></p>
       <div class="scan__buttons">

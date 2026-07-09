@@ -152,6 +152,10 @@ async function synthesize(text, voiceName) {
 
 // POST /see with an image body -> {"text": "..."} via Gemini (her free AI
 // Studio key). Modern vision OCR: curved labels, glare, all three alphabets.
+// With ?to=en|tr it returns {"items": [{o, t}, ...]} instead: each distinct
+// text item paired with its translation, so lists and panels stay readable.
+const SEE_LANGS = { en: "English", tr: "Turkish" };
+
 async function handleSee(request, env, u) {
   if (!env.GEMINI_API_KEY) {
     return new Response("no eyes configured", { status: 503, headers: corsHeaders() });
@@ -165,21 +169,52 @@ async function handleSee(request, env, u) {
     bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
   }
   const mime = request.headers.get("Content-Type") || "image/jpeg";
-  const model = u.searchParams.get("gemodel") || "gemini-2.5-flash";
+  // "-latest" aliases track Google's newest models, so retirements (like
+  // gemini-2.5-flash's) can't break the app; lite is the always-up fallback.
+  const models = u.searchParams.get("gemodel")
+    ? [u.searchParams.get("gemodel")]
+    : ["gemini-flash-latest", "gemini-flash-lite-latest"];
+  const target = SEE_LANGS[u.searchParams.get("to")];
+  const prompt = target
+    ? "This photo comes from a translator app. List every distinct text item you can read: " +
+      "a label, a sign line, a button caption, a menu entry, a product name. Words that read " +
+      "together as one phrase stay together as one item; never merge separate labels into one. " +
+      "For each item return o = the exact original text as written, keeping its language and " +
+      "alphabet, and t = its translation into " + target + ". If an item is already in " + target +
+      ", set t to its Georgian translation instead. Skip unreadable fragments. If there is no " +
+      "readable text, return an empty array."
+    : "Read all text visible in this image, exactly as written, keeping the original language and alphabet (Georgian, Russian, English...). Preserve line breaks between separate items. Reply with ONLY the text you can read - no commentary, no translation, no formatting. If there is no readable text, reply with an empty message.";
   const body = {
     contents: [{
       parts: [
         { inline_data: { mime_type: mime, data: btoa(bin) } },
-        { text: "Read all text visible in this image, exactly as written, keeping the original language and alphabet (Georgian, Russian, English...). Preserve line breaks between separate items. Reply with ONLY the text you can read - no commentary, no translation, no formatting. If there is no readable text, reply with an empty message." },
+        { text: prompt },
       ],
     }],
-    generationConfig: { temperature: 0 },
+    generationConfig: target
+      ? {
+          temperature: 0,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: { o: { type: "STRING" }, t: { type: "STRING" } },
+              required: ["o", "t"],
+            },
+          },
+        }
+      : { temperature: 0 },
   };
   try {
-    const gr = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
-    );
+    let gr = null;
+    for (const model of models) {
+      gr = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      if (gr.ok) break; // retired, overloaded, or throttled: try the next model
+    }
     if (!gr.ok) {
       const errBody = await gr.text();
       return new Response("see failed: " + gr.status + " " + errBody.slice(0, 200), {
@@ -192,6 +227,17 @@ async function handleSee(request, env, u) {
       .map((p) => p.text || "")
       .join("")
       .trim();
+    if (target) {
+      let items = [];
+      try {
+        items = JSON.parse(text).filter(
+          (p) => p && typeof p.o === "string" && p.o.trim() && typeof p.t === "string" && p.t.trim()
+        );
+      } catch {}
+      return new Response(JSON.stringify({ items, via: "gemini" }), {
+        headers: { ...corsHeaders(), "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ text, via: "gemini" }), {
       headers: { ...corsHeaders(), "Content-Type": "application/json" },
     });

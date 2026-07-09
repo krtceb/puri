@@ -111,6 +111,8 @@ function hideStatus() { $("status").hidden = true; }
 const LANG_LABEL = { en: "English", tr: "Türkçe" };
 function renderResult(ka, out, lang) {
   $("empty").hidden = true;
+  $("pairs").hidden = true;
+  $("btn-back-pairs").hidden = !lastPairs; // way back to the scanned list
   $("result").hidden = false;
   $("source-tag").textContent =
     CYRILLIC.test(ka) && !GEORGIAN.test(ka) ? "Русский" : "Georgian";
@@ -126,6 +128,39 @@ function renderResult(ka, out, lang) {
   save.lastChild.textContent = " Save to phrasebook";
   lastResult = { ka, out, lang };
   $("btn-clear").hidden = false; // a result on screen is always clearable
+}
+
+// ---- paired rows: each read item with its translation right under it ----
+// A panel or shelf is a list, so the result stays a list. Tapping a row opens
+// it as a normal single result (speak, show big, save to phrasebook).
+let lastPairs = null;
+
+function buildPairRow(p, onTap) {
+  const row = el("button", "pair");
+  row.type = "button";
+  row.append(el("span", "pair__o", p.o), el("span", "pair__t", p.t));
+  row.onclick = onTap;
+  return row;
+}
+
+function renderPairs(items) {
+  $("empty").hidden = true;
+  $("result").hidden = true;
+  lastResult = null;
+  lastPairs = items;
+  const box = $("pairs");
+  box.innerHTML = "";
+  items.forEach((p) => box.appendChild(buildPairRow(p, () => openPair(p))));
+  box.hidden = false;
+  $("btn-back-pairs").hidden = true;
+  $("btn-clear").hidden = false;
+}
+
+function openPair(p) {
+  // The Georgian/Russian text is the source card; her language is the out card.
+  const foreign = GEORGIAN.test(p.o) || CYRILLIC.test(p.o);
+  $("input").value = p.o;
+  renderResult(foreign ? p.o : p.t, foreign ? p.t : p.o, myLang);
 }
 
 // ---- main translate flow ----
@@ -162,6 +197,17 @@ async function runTranslate() {
 
 // re-translate the current result when the language is switched
 async function refreshLang() {
+  // Paired rows: re-translate each foreign row into the new language.
+  if (lastPairs && !$("pairs").hidden) {
+    const updated = await Promise.all(lastPairs.map(async (p) => {
+      const from = GEORGIAN.test(p.o) ? "ka" : CYRILLIC.test(p.o) ? "ru" : null;
+      if (!from) return p;
+      try { return { o: p.o, t: await translate(p.o, from + "|" + myLang) }; }
+      catch { return p; }
+    }));
+    renderPairs(updated);
+    return;
+  }
   if (!lastResult) return;
   const src = lastResult.ka;
   // Only re-translate when the source is the foreign side (Georgian or Russian).
@@ -274,18 +320,38 @@ async function imageToJpegBlob(source, maxW) {
 }
 
 // Puri's modern eyes: Gemini reads through the relay (curved labels, glare,
-// all three alphabets). Returns the raw text, or "" if it read nothing.
-async function seeWithGemini(source, maxW) {
+// all three alphabets). A plain call returns the raw text ("" if nothing).
+// With `to` it returns pairs instead: [{o: original, t: translation}, ...],
+// one per text item, read and translated in the same single call.
+async function seeWithGemini(source, maxW, to) {
   const blob = await imageToJpegBlob(source, maxW || 1600);
   if (!blob) throw new Error("encode");
-  const res = await fetch(VOICE_URL + "see", {
+  const res = await fetch(VOICE_URL + "see" + (to ? "?to=" + to : ""), {
     method: "POST",
     headers: { "Content-Type": "image/jpeg" },
     body: blob,
   });
   if (!res.ok) throw new Error("see " + res.status);
   const j = await res.json();
+  if (to) return (j.items || []).filter((p) => p && p.o && p.t);
   return (j.text || "").trim();
+}
+
+// The dashed guide is real: capture only what she framed. Maps the on-screen
+// rectangle back to source pixels under the viewfinder's object-fit: cover.
+function cropScanFrame(v) {
+  const fr = $("scan-frame").getBoundingClientRect();
+  const vr = v.getBoundingClientRect();
+  const scale = Math.max(vr.width / v.videoWidth, vr.height / v.videoHeight);
+  const sx = Math.max(0, (fr.left - vr.left + (v.videoWidth * scale - vr.width) / 2) / scale);
+  const sy = Math.max(0, (fr.top - vr.top + (v.videoHeight * scale - vr.height) / 2) / scale);
+  const sw = Math.min(v.videoWidth - sx, fr.width / scale);
+  const sh = Math.min(v.videoHeight - sy, fr.height / scale);
+  const c = document.createElement("canvas");
+  c.width = Math.round(sw);
+  c.height = Math.round(sh);
+  c.getContext("2d").drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
 }
 
 // The old on-device reader (Tesseract): offline backup when Gemini can't be reached.
@@ -300,13 +366,18 @@ async function readOnDevice(file) {
 
 async function runOCR(file) {
   showStatus("Reading the photo…");
-  let text = "";
   try {
-    text = await seeWithGemini(file, 1600);      // modern eyes first
-  } catch {
-    try { text = await readOnDevice(file); }     // offline backup
-    catch {}
-  }
+    // modern eyes first: read + translate together, one row per item
+    const items = await seeWithGemini(file, 1600, myLang);
+    hideStatus();
+    if (!items.length) { showStatus("Couldn't find text. Get closer, fill the frame, avoid glare.", "error"); return; }
+    if (items.length === 1) openPair(items[0]);
+    else renderPairs(items);
+    return;
+  } catch {}
+  // offline backup: read on-device, translate as one block
+  let text = "";
+  try { text = await readOnDevice(file); } catch {}
   if (!text) { showStatus("Couldn't find text. Get closer, fill the frame, avoid glare.", "error"); return; }
   $("input").value = text;
   $("btn-clear").hidden = false;
@@ -694,6 +765,16 @@ let scanStream = null;
 let scanBusy = false;
 let lastScanKa = "";
 let lastScanOut = "";
+let lastScanPairs = null;
+
+function resetScanOutput() {
+  $("scan-ka").textContent = "";
+  $("scan-out").textContent = "";
+  $("scan-pairs").hidden = true;
+  $("scan-pairs").innerHTML = "";
+  $("scan-use").hidden = true;
+  lastScanPairs = null;
+}
 
 async function openScan() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -711,9 +792,7 @@ async function openScan() {
   }
   $("scan").hidden = false;
   $("scan-status").textContent = "Frame the text, then tap the button.";
-  $("scan-ka").textContent = "";
-  $("scan-out").textContent = "";
-  $("scan-use").hidden = true;
+  resetScanOutput();
   scanBusy = false;
   const v = $("scan-video");
   v.srcObject = scanStream;
@@ -728,19 +807,27 @@ async function captureScan() {
   scanBusy = true;
   $("scan-shutter").classList.add("is-busy");
   $("scan-status").textContent = "Reading…";
-  $("scan-ka").textContent = "";
-  $("scan-out").textContent = "";
-  $("scan-use").hidden = true;
+  resetScanOutput();
   try {
+    // the dashed frame is a real crop: only what she aimed at gets read
+    const framed = cropScanFrame(v);
+    let items = null;
     let text = "";
-    try { text = await seeWithGemini(v, 1600); }       // modern eyes
+    try { items = await seeWithGemini(framed, 1600, myLang); }  // modern eyes
     catch {
-      // offline backup: grab a frame and read on-device
-      const c = document.createElement("canvas");
-      c.width = v.videoWidth; c.height = v.videoHeight;
-      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
-      const { data } = await getOcrWorker().then((w) => w.recognize(c, {}, { text: true, blocks: true }));
+      // offline backup: read the same framed crop on-device
+      const { data } = await getOcrWorker().then((w) => w.recognize(framed, {}, { text: true, blocks: true }));
       text = cleanOcr(data);
+    }
+    if (items) {
+      if (!items.length) { $("scan-status").textContent = "No text found. Get closer, avoid glare, tap again."; return; }
+      $("scan-status").textContent = "";
+      const box = $("scan-pairs");
+      items.forEach((p) => box.appendChild(buildPairRow(p, () => { openPair(p); closeScan(); })));
+      box.hidden = false;
+      lastScanPairs = items;
+      $("scan-use").hidden = false;
+      return;
     }
     if (!text) { $("scan-status").textContent = "No text found. Get closer, avoid glare, tap again."; return; }
     $("scan-status").textContent = "";
@@ -771,6 +858,7 @@ function closeScan() {
   scanBusy = false;
   lastScanKa = "";
   lastScanOut = "";
+  lastScanPairs = null;
 }
 
 // ---- views ----
@@ -802,15 +890,24 @@ function init() {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") runTranslate();
   });
   $("input").addEventListener("input", () => {
-    $("btn-clear").hidden = $("input").value.trim() === "" && $("result").hidden;
+    $("btn-clear").hidden = $("input").value.trim() === "" && $("result").hidden && $("pairs").hidden;
   });
   $("btn-clear").onclick = () => {
     $("input").value = "";
     $("btn-clear").hidden = true;
     $("result").hidden = true;
+    $("pairs").hidden = true;
+    $("btn-back-pairs").hidden = true;
     $("empty").hidden = false;
     lastResult = null;
+    lastPairs = null;
     hideStatus();
+  };
+  $("btn-back-pairs").onclick = () => {
+    if (!lastPairs) return;
+    $("result").hidden = true;
+    $("input").value = "";
+    renderPairs(lastPairs);
   };
 
   $("btn-photo").onclick = () => $("file").click();
@@ -818,7 +915,9 @@ function init() {
   $("scan-close").onclick = closeScan;
   $("scan-shutter").onclick = captureScan;
   $("scan-use").onclick = () => {
-    if (lastScanKa && lastScanOut) renderResult(lastScanKa, lastScanOut, myLang);
+    if (lastScanPairs && lastScanPairs.length > 1) renderPairs(lastScanPairs);
+    else if (lastScanPairs && lastScanPairs.length === 1) openPair(lastScanPairs[0]);
+    else if (lastScanKa && lastScanOut) renderResult(lastScanKa, lastScanOut, myLang);
     closeScan();
   };
   $("file").addEventListener("change", (e) => {
