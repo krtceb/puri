@@ -255,22 +255,62 @@ async function fileToCanvas(file, maxW) {
   return c;
 }
 
-async function runOCR(file) {
-  showStatus("Reading the photo… this part runs on your phone.");
-  try {
-    const worker = await getOcrWorker();
-    await worker.setParameters({ tessedit_pageseg_mode: "3" }); // full-page reading
-    let source = file;
-    try { source = await fileToCanvas(file, 1600); } catch {}
-    const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
-    const text = cleanOcr(data);
-    if (!text) { showStatus("Couldn't find clear Georgian text. Get closer, fill the frame, avoid glare.", "error"); return; }
-    $("input").value = text;
-    $("btn-clear").hidden = false;
-    await runTranslate();
-  } catch (e) {
-    showStatus("Could not read that photo. Try again with more light.", "error");
+// Shrink any image to a JPEG small enough to send quickly (modern-AI reading
+// doesn't need full resolution, and the relay caps uploads at 4MB).
+async function imageToJpegBlob(source, maxW) {
+  let w, h, drawable;
+  if (source instanceof HTMLVideoElement) {
+    w = source.videoWidth; h = source.videoHeight; drawable = source;
+  } else {
+    drawable = await createImageBitmap(source);
+    w = drawable.width; h = drawable.height;
   }
+  const scale = Math.min(1, maxW / w);
+  const c = document.createElement("canvas");
+  c.width = Math.round(w * scale);
+  c.height = Math.round(h * scale);
+  c.getContext("2d").drawImage(drawable, 0, 0, c.width, c.height);
+  return await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+}
+
+// Puri's modern eyes: Gemini reads through the relay (curved labels, glare,
+// all three alphabets). Returns the raw text, or "" if it read nothing.
+async function seeWithGemini(source, maxW) {
+  const blob = await imageToJpegBlob(source, maxW || 1600);
+  if (!blob) throw new Error("encode");
+  const res = await fetch(VOICE_URL + "see", {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg" },
+    body: blob,
+  });
+  if (!res.ok) throw new Error("see " + res.status);
+  const j = await res.json();
+  return (j.text || "").trim();
+}
+
+// The old on-device reader (Tesseract): offline backup when Gemini can't be reached.
+async function readOnDevice(file) {
+  const worker = await getOcrWorker();
+  await worker.setParameters({ tessedit_pageseg_mode: "3" });
+  let source = file;
+  try { source = await fileToCanvas(file, 1600); } catch {}
+  const { data } = await worker.recognize(source, {}, { text: true, blocks: true });
+  return cleanOcr(data);
+}
+
+async function runOCR(file) {
+  showStatus("Reading the photo…");
+  let text = "";
+  try {
+    text = await seeWithGemini(file, 1600);      // modern eyes first
+  } catch {
+    try { text = await readOnDevice(file); }     // offline backup
+    catch {}
+  }
+  if (!text) { showStatus("Couldn't find text. Get closer, fill the frame, avoid glare.", "error"); return; }
+  $("input").value = text;
+  $("btn-clear").hidden = false;
+  await runTranslate();
 }
 
 // ---- speech ----
@@ -649,16 +689,11 @@ async function routeHeard(said, language, pending) {
   }
 }
 
-// ---- live scan (point the camera, no photo taking) ----
+// ---- scan: live viewfinder, tap to read one sharp frame with Gemini ----
 let scanStream = null;
-let scanTimer = null;
 let scanBusy = false;
-let scanWorker = null;
-let lastScanRaw = "";
 let lastScanKa = "";
 let lastScanOut = "";
-let scanBest = 0;  // confidence of the best read so far
-let sharpMax = 0;  // sharpest frame seen lately (adaptive blur bar)
 
 async function openScan() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -675,96 +710,67 @@ async function openScan() {
     return;
   }
   $("scan").hidden = false;
-  $("scan-status").textContent = "Warming up the reader…";
+  $("scan-status").textContent = "Frame the text, then tap the button.";
   $("scan-ka").textContent = "";
   $("scan-out").textContent = "";
   $("scan-use").hidden = true;
+  scanBusy = false;
   const v = $("scan-video");
   v.srcObject = scanStream;
   try { await v.play(); } catch {}
-  try {
-    scanWorker = await getOcrWorker();
-    await scanWorker.setParameters({ tessedit_pageseg_mode: "6" }); // signs: one block of text
-  } catch {
-    closeScan();
-    toast("Couldn't load the reader. Check your signal and try again.");
-    return;
-  }
-  $("scan-status").textContent = "Get close: fill the screen with a few lines of text, and hold steady…";
-  scanLoop();
 }
 
-async function scanLoop() {
-  if (!scanStream) return;
-  if (!scanBusy) {
-    scanBusy = true;
-    try {
-      const v = $("scan-video");
-      if (v.videoWidth) {
-        // Skip motion-blurred frames; the sharpness bar adapts to the scene.
-        const sharp = frameSharpness(v);
-        if (sharp > sharpMax) sharpMax = sharp;
-        sharpMax *= 0.985; // slow decay so a lighting change doesn't lock us out
-        if (sharp < sharpMax * 0.55) { scanBusy = false; scanTimer = setTimeout(scanLoop, 200); return; }
-
-        const scale = Math.min(1, 1920 / v.videoWidth);
-        const c = document.createElement("canvas");
-        c.width = Math.round(v.videoWidth * scale);
-        c.height = Math.round(v.videoHeight * scale);
-        const ctx = c.getContext("2d");
-        ctx.filter = "grayscale(1) contrast(1.5)"; // labels read far better flattened
-        ctx.drawImage(v, 0, 0, c.width, c.height);
-        const { data } = await scanWorker.recognize(c, {}, { text: true, blocks: true });
-        const { text, score } = cleanOcrScored(data);
-        const letters = (text.match(/[ა-ჰa-zA-ZА-яЁё]/g) || []).length;
-        // Pointed at a different sign? Start a fresh contest.
-        if (text && letters >= 4 && lastScanRaw && wordOverlap(text, lastScanRaw) < 0.3) scanBest = 0;
-        // Best read wins: only replace the result when a sharper frame beats it.
-        if (text && letters >= 4 && text !== lastScanRaw && score > scanBest + 1) {
-          scanBest = score;
-          lastScanRaw = text;
-          try {
-            if (GEORGIAN.test(text) || CYRILLIC.test(text)) {
-              // Georgian or Russian label -> her language
-              $("scan-ka").textContent = text;
-              $("scan-status").textContent = "";
-              const pair = GEORGIAN.test(text) ? "ka|" : "ru|";
-              const out = await translate(text, pair + myLang);
-              lastScanKa = text;
-              lastScanOut = out;
-              $("scan-out").textContent = out;
-            } else {
-              // English (or other Latin) label -> Georgian
-              $("scan-out").textContent = text;
-              $("scan-status").textContent = "";
-              const ka = await translate(text, "auto|ka");
-              lastScanKa = ka;
-              lastScanOut = text;
-              $("scan-ka").textContent = ka;
-            }
-            $("scan-use").hidden = false;
-          } catch {}
-        } else if (!lastScanRaw) {
-          $("scan-status").textContent = "Looking for text…";
-        }
-      }
-    } catch {}
+// One tap = one deliberate, sharp frame sent to Gemini. No quota-burning loop.
+async function captureScan() {
+  if (scanBusy || !scanStream) return;
+  const v = $("scan-video");
+  if (!v.videoWidth) return;
+  scanBusy = true;
+  $("scan-shutter").classList.add("is-busy");
+  $("scan-status").textContent = "Reading…";
+  $("scan-ka").textContent = "";
+  $("scan-out").textContent = "";
+  $("scan-use").hidden = true;
+  try {
+    let text = "";
+    try { text = await seeWithGemini(v, 1600); }       // modern eyes
+    catch {
+      // offline backup: grab a frame and read on-device
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      const { data } = await getOcrWorker().then((w) => w.recognize(c, {}, { text: true, blocks: true }));
+      text = cleanOcr(data);
+    }
+    if (!text) { $("scan-status").textContent = "No text found. Get closer, avoid glare, tap again."; return; }
+    $("scan-status").textContent = "";
+    if (GEORGIAN.test(text) || CYRILLIC.test(text)) {
+      $("scan-ka").textContent = text;
+      const pair = GEORGIAN.test(text) ? "ka|" : "ru|";
+      const out = await translate(text, pair + myLang);
+      lastScanKa = text; lastScanOut = out;
+      $("scan-out").textContent = out;
+    } else {
+      $("scan-out").textContent = text;
+      const ka = await translate(text, "auto|ka");
+      lastScanKa = ka; lastScanOut = text;
+      $("scan-ka").textContent = ka;
+    }
+    $("scan-use").hidden = false;
+  } catch {
+    $("scan-status").textContent = "Couldn't read that. Check your signal and tap again.";
+  } finally {
     scanBusy = false;
+    $("scan-shutter").classList.remove("is-busy");
   }
-  scanTimer = setTimeout(scanLoop, 400);
 }
 
 function closeScan() {
   $("scan").hidden = true;
-  clearTimeout(scanTimer);
-  scanTimer = null;
   if (scanStream) { scanStream.getTracks().forEach((t) => t.stop()); scanStream = null; }
-  scanWorker = null; // shared reader stays warm in getOcrWorker
-  lastScanRaw = "";
+  scanBusy = false;
   lastScanKa = "";
   lastScanOut = "";
-  scanBest = 0;
-  sharpMax = 0;
 }
 
 // ---- views ----
@@ -810,6 +816,7 @@ function init() {
   $("btn-photo").onclick = () => $("file").click();
   $("btn-scan").onclick = openScan;
   $("scan-close").onclick = closeScan;
+  $("scan-shutter").onclick = captureScan;
   $("scan-use").onclick = () => {
     if (lastScanKa && lastScanOut) renderResult(lastScanKa, lastScanOut, myLang);
     closeScan();

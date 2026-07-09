@@ -534,7 +534,31 @@ body { overscroll-behavior-y: none; }
   word-break: break-word;
 }
 .scan__out { font-size: 16.5px; font-weight: 500; color: var(--wine); margin: 0; word-break: break-word; }
-.scan__use { margin-top: 6px; }
+.scan__use { margin-top: 2px; }
+
+/* framing guide: a soft rounded rectangle over the middle of the viewfinder */
+.scan__frame {
+  position: absolute;
+  left: 8%; right: 8%;
+  top: 26%; bottom: 40%;
+  border: 2px dashed rgba(255, 255, 255, 0.5);
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 1;
+}
+.scan__buttons { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.scan__shutter {
+  width: 62px; height: 62px;
+  border-radius: 50%;
+  border: 4px solid var(--wine);
+  background: var(--wine);
+  cursor: pointer;
+  flex: none;
+  box-shadow: 0 0 0 3px var(--card) inset;
+  transition: transform 0.1s ease;
+}
+.scan__shutter:active { transform: scale(0.92); }
+.scan__shutter.is-busy { animation: pulse 1.1s ease infinite; }
 
 /* ---------- fullscreen "show them" mode ---------- */
 .show {

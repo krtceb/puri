@@ -182,11 +182,15 @@
   <div class="scan" id="scan" hidden>
     <video id="scan-video" class="scan__video" autoplay playsinline muted></video>
     <button class="show__close scan__close" id="scan-close" type="button" aria-label="Close">✕</button>
+    <div class="scan__frame" aria-hidden="true"></div>
     <div class="scan__panel">
-      <p class="scan__status" id="scan-status"></p>
+      <p class="scan__status" id="scan-status">Frame the text, then tap the button.</p>
       <p class="scan__ka" id="scan-ka"></p>
       <p class="scan__out" id="scan-out"></p>
-      <button class="btn btn--solid scan__use" id="scan-use" type="button" hidden>Open this result</button>
+      <div class="scan__buttons">
+        <button class="scan__shutter" id="scan-shutter" type="button" aria-label="Read this"></button>
+        <button class="btn btn--solid scan__use" id="scan-use" type="button" hidden>Open this result</button>
+      </div>
     </div>
   </div>
 

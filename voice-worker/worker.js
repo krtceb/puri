@@ -17,7 +17,9 @@ const VOICES = {
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "86400",
   };
 }
 
@@ -148,6 +150,56 @@ async function synthesize(text, voiceName) {
   return audio;
 }
 
+// POST /see with an image body -> {"text": "..."} via Gemini (her free AI
+// Studio key). Modern vision OCR: curved labels, glare, all three alphabets.
+async function handleSee(request, env, u) {
+  if (!env.GEMINI_API_KEY) {
+    return new Response("no eyes configured", { status: 503, headers: corsHeaders() });
+  }
+  const buf = new Uint8Array(await request.arrayBuffer());
+  if (!buf.length) return new Response("missing image", { status: 400, headers: corsHeaders() });
+  if (buf.length > 4_000_000) return new Response("image too large", { status: 413, headers: corsHeaders() });
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+  }
+  const mime = request.headers.get("Content-Type") || "image/jpeg";
+  const model = u.searchParams.get("gemodel") || "gemini-2.5-flash";
+  const body = {
+    contents: [{
+      parts: [
+        { inline_data: { mime_type: mime, data: btoa(bin) } },
+        { text: "Read all text visible in this image, exactly as written, keeping the original language and alphabet (Georgian, Russian, English...). Preserve line breaks between separate items. Reply with ONLY the text you can read - no commentary, no translation, no formatting. If there is no readable text, reply with an empty message." },
+      ],
+    }],
+    generationConfig: { temperature: 0 },
+  };
+  try {
+    const gr = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + env.GEMINI_API_KEY,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (!gr.ok) {
+      const errBody = await gr.text();
+      return new Response("see failed: " + gr.status + " " + errBody.slice(0, 200), {
+        status: gr.status === 429 ? 429 : 502,
+        headers: corsHeaders(),
+      });
+    }
+    const j = await gr.json();
+    const text = (((j.candidates || [])[0] || {}).content?.parts || [])
+      .map((p) => p.text || "")
+      .join("")
+      .trim();
+    return new Response(JSON.stringify({ text, via: "gemini" }), {
+      headers: { ...corsHeaders(), "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response("see failed: " + e.message, { status: 502, headers: corsHeaders() });
+  }
+}
+
 // POST /listen?lang=ka with an audio body -> {"text": "..."} via Whisper on
 // Workers AI (free allocation on this account; fails politely if exhausted).
 async function handleListen(request, env, u) {
@@ -222,6 +274,9 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
     const u = new URL(request.url);
+    if (u.pathname === "/see" && request.method === "POST") {
+      return handleSee(request, env, u);
+    }
     if (u.pathname === "/listen" && request.method === "POST") {
       return handleListen(request, env, u);
     }
